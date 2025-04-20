@@ -1,5 +1,5 @@
+from TH9800_Enums import *
 import dearpygui.dearpygui as dpg
-from enum import Enum
 import serial.tools.list_ports
 import serial_asyncio
 import asyncio
@@ -22,55 +22,12 @@ def reload():
     TH9800_CAT.asyncio.run(TH9800_CAT.main())
 """
 
-class RADIO_POWER(Enum):
-    LOW = "L"
-    MEDIUM_LOW = "ML"
-    MEDIUM_HIGH = "MH"
-    HIGH = "H"
-
-    def __str__(self):
-        return str(self.value)
-
-class RADIO_RX_CMD(Enum): #STILL BUILDING THIS OUT
-    DISPLAY_TEXT = None
-    CHANNEL_TEXT = None
-    DISPLAY_CHANGE = None
-    DISPLAY_ICONS = None
-
-    def __str__(self):
-        return str(self.name)
-
-class RADIO_TX_CMD(Enum):
-    DIAL_PRESS = None
-    DIAL_LEFT = None
-    DIAL_RIGHT = None
-    SQUELCH_DOWN = None
-    SQUELCH_UP = None
-    VOLUME_DOWN = None
-    VOLUME_UP = None
-
-    def __str__(self):
-        return str(self.name)
-
-class RADIO_VFO(Enum):
-    LEFT = "L"
-    RIGHT = "R"
-    NONE = "N"
-
-    def __str__(self):
-        return str(self.value)
-
-class RADIO_VFO_TYPE(Enum):
-    MEMORY = "M"
-    VFO = "V"
-
-    def __str__(self):
-        return str(self.value)
-
 class SerialRadio:
-    def __init__(self, dpg):
+    def __init__(self, dpg: dpg = None):
         self.dpg = dpg
         self.dpg_enabled = True
+        self.menu_open = False
+        self.startup = False
         self.vfo_change = False
         self.vfo_active = str(RADIO_VFO.LEFT)
         self.vfo_active_processing = str(RADIO_VFO.LEFT)
@@ -78,26 +35,24 @@ class SerialRadio:
         self.vfo_type_r = str(RADIO_VFO_TYPE.MEMORY)
         self.vfo_text = ""
         self.vfo_channel = ""
-        self.menu_open = False
-
-        cmd_start_byte = 0x84
-        cmd_packet_default = bytearray([cmd_start_byte,0xFF,0xFF,0xFF,0xFF,0x81,0xFF,0xFF,0x82,0xFF,0xFF,0x00])
-        self.cmd_list = {
-            'L_DIAL_PRESS': cmd_packet_default[0:3] + bytearray([0x00,0x25]) + cmd_packet_default[5:12],
-            'L_DIAL_LEFT': cmd_packet_default[0:2] + bytearray([0x01]) + cmd_packet_default[3:12],
-            'L_DIAL_RIGHT': cmd_packet_default[0:2] + bytearray([0x02]) + cmd_packet_default[3:12]
-        }
-
-    def scale_0_to_171(self, value): #Convert 0-100 to 0-171 for Volume and Squelch
-        return round((value / 100) * 171)
 
     def get_cmd_pkt(self, cmd: RADIO_TX_CMD, vfo: RADIO_VFO, payload: bytes = None):
-        if str(cmd).find("VOLUME") != -1 or str(cmd).find("SQUELCH") != -1:
-            raise ValueError(f"\nTX command '{vfo}_{cmd}' requires a payload.")
-        if f"{vfo}_{cmd}" in self.cmd_list:
-            return self.cmd_list[f"{vfo}_{cmd}"]
+        if str(cmd).find("SQUELCH") != -1 or str(cmd).find("VOLUME") != -1:
+            if payload == None: #VOL/SQ payload default value is 25% (0xEB00)
+                return self.cmd_list[f"{vfo}_{cmd}"]
+            elif str(cmd).find("SQUELCH") != -1:
+                cmd_pkt = self.cmd_list[f"{vfo}_{cmd}"]
+                cmd_pkt = cmd_pkt[0:9] + payload + bytearray([cmd_pkt[11]])
+                return cmd_pkt
+            elif str(cmd).find("VOLUME") != -1:
+                cmd_pkt = self.cmd_list[f"{vfo}_{cmd}"]
+                cmd_pkt = cmd_pkt[0:6] + payload + cmd_pkt[8:12]
+                return cmd_pkt
         else:
-            raise ValueError(f"\nTX command '{vfo}_{cmd}' does not exist in command list!")
+            if f"{vfo}_{cmd}" in self.cmd_list:
+                return self.cmd_list[f"{vfo}_{cmd}"]
+            else:
+                raise ValueError(f"\nTX command '{vfo}_{cmd}' does not exist in command list!")
 
 class SerialPacket:
     def __init__(self, radio=None):
@@ -217,6 +172,37 @@ class SerialPacket:
                         self.radio.vfo_active_processing = str(RADIO_VFO.RIGHT)
                         self.radio.vfo_change = True
                         print(f"{self.radio.vfo_active}<***Right VFO Activated***>{self.radio.vfo_active}")
+            case 0x52: #Startup RX CMD 3
+                match packet_data[0]:
+                    case 0x20:
+                        protocol.send_packet(SerialPacket().create_tx_packet(payload=bytes([0xA0,0x18,0x02])))
+            case 0x70: #Startup RX CMD 1
+                match packet_data[0]:
+                    case 0x00:
+                        self.radio.startup = True
+                        protocol.send_packet(SerialPacket().create_tx_packet(payload=bytes([0x0F])))
+            case 0x72: #Startup RX CMD 2
+                match packet_data[0]:
+                    case 0x00:
+                        #Send Vol/Sql for each VFO
+                        cmd_pkt = radio.get_cmd_pkt(cmd=RADIO_TX_CMD.DIAL_PRESS, vfo=RADIO_VFO.LEFT, payload=bytes([]))
+                        cmd_pkt2 = radio.get_cmd_pkt(cmd=RADIO_TX_CMD.DIAL_PRESS, vfo=RADIO_VFO.RIGHT, payload=bytes([]))
+                        protocol.send_packet(SerialPacket().create_tx_packet(payload=cmd_pkt))
+                        protocol.send_packet(SerialPacket().create_tx_packet(payload=cmd_pkt2))
+
+    def vol_sq_to_packet(self, volume: int) -> bytes:
+        if not (0 <= volume <= 100):
+            raise ValueError("Volume must be >= 0 and <= 100")
+
+        max_raw = 0x03AC #940
+
+        if volume == 0:
+            raw_value = 0
+        else:
+            # Spread values 1–100 evenly over 1–940
+            raw_value = round((volume / 100) * max_raw)
+
+        return raw_value.to_bytes(2, byteorder='little')
 
     def calculate_checksum(self, payload: bytes):
         """
