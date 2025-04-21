@@ -24,11 +24,69 @@ class RADIO_VFO_TYPE(Enum):
     def __str__(self):
         return str(self.value)
 
-class RADIO_RX_CMD(Enum): #STILL BUILDING THIS OUT
+class RADIO_RX_ICON(Enum):
+    APO = 0x02
+    LOCK = 0x0C
+    KEY2 = 0x20
+    MAIN = 0x80
+    RPT_OFFSET_NEG = 0x02
+    RPT_OFFSET_POS = 0x08
+    CHAN_PREF = 0x02
+    CHAN_SKIP = 0x08
+    CTCSS_ENC = 0x20
+    CTCSS_ENCDEC = 0xA0
+    DCS = 0x02
+    MUTE = 0x08
+    MEM_TUNE = 0x20
+    AM = 0x80
+    PWR_HIGH = 0x00
+    PWR_MED = 0x02
+    PWR_LOW = 0x08
+
+    def __int__(self):
+        return int(self.value)
+
+class RADIO_RX_CMD(Enum):
+    #Startup CMDs
+    STARTUP_1 = 0x70
+    STARTUP_2 = 0x72
+    STARTUP_3 = 0x52
+    STARTUP_4 = 0x41
+    
+    #Display/Channel CMDs
     DISPLAY_TEXT = 0x01
     CHANNEL_TEXT = 0x02
     DISPLAY_CHANGE = 0x03
-    DISPLAY_ICONS = auto()
+    DISPLAY_ICONS = 0x04
+    
+    #ICON CMDs
+    ICON_SET = 0x10
+    ICON_KEY2 = 0x11
+    ICON_LOCK = 0x12
+    ICON_APO = 0x13
+    ICON_MAIN = 0x14
+    ICON_TX = 0x15
+    ICON_RPT_OFFSET_POS = 0x16
+    ICON_RPT_OFFSET_NEG = 0x17
+    ICON_CTCSS_ENCDEC = 0x18
+    ICON_CTCSS_ENC = 0x19
+    ICON_CHAN_SKIP = 0x1A
+    ICON_CHAN_PREF = 0x1B
+    ICON_BUSY = 0x1C
+    ICON_SIG_BARS = 0x1D
+    ICON_MEM_TUNE = 0x1E
+    ICON_MUTE = 0x1F
+    ICON_DCS = 0x20
+    ICON_AM = 0x21
+    ICON_9600 = 0x22
+    ICON_PWR_LOW = 0x23
+    ICON_PWR_MED = 0x24
+    ICON_DOT_1ST = 0x25
+    ICON_DOT_2ND = 0x26
+    ICON_5 = 0x27
+
+    def __int__(self):
+        return int(self.value)
 
     def __str__(self):
         return str(self.name)
@@ -39,6 +97,10 @@ class RADIO_TX_CMD(Enum):
     
     #Menu Button
     MENU = (bytearray([0x00,0x20]),3,5)
+    
+    #Left/Right VOL SQ CMDs used during radio startup
+    L_VOLUME_SQUELCH = (bytearray([0x01,0xEB,0x00,0x02,0xEB,0x00]),5,11)
+    R_VOLUME_SQUELCH = (bytearray([0x81,0xEB,0x00,0x82,0xEB,0x00]),5,11)
     
     #Left Buttons
     L_DIAL_PRESS = (bytearray([0x00,0x25]),3,5)
