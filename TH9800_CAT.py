@@ -20,12 +20,14 @@ def clear():
         print("\n")
 
 def reload():
+    TH9800_CAT.dpg.destroy_context()
     importlib.reload(TH9800_CAT)
     TH9800_CAT.asyncio.run(TH9800_CAT.main())
 """
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
+debug = True
 
 def start_event_loop():
     loop.run_forever()
@@ -33,14 +35,17 @@ def start_event_loop():
 threading.Thread(target=start_event_loop, daemon=True).start()
 
 class SerialRadio:
-    def __init__(self, dpg: dpg = None, protocol: SerialProtocol = None):
-        self.dpg = dpg
-        self.dpg_enabled = True
+    def __init__(self, dpg: dpg = None, protocol = None):
         self.packet = SerialPacket()
         self.protocol = protocol
+        
+        self.dpg = dpg
+        self.dpg_enabled = True
+        
         self.menu_open = False
         self.connect_process = False
         self.startup = False
+        
         self.vfo_change = False
         self.vfo_active = str(RADIO_VFO.LEFT)
         self.vfo_active_processing = str(RADIO_VFO.LEFT)
@@ -48,6 +53,18 @@ class SerialRadio:
         self.vfo_type_r = str(RADIO_VFO_TYPE.MEMORY)
         self.vfo_text = ""
         self.vfo_channel = ""
+        
+        self.mic_ptt = False
+        
+        self.icons = {}
+        self.icons[RADIO_VFO.LEFT] = {}
+        self.icons[RADIO_VFO.RIGHT] = {}
+        for icon in RADIO_RX_ICON:
+            self.icons[RADIO_VFO.LEFT].update({f"{icon.name}": False})
+            self.icons[RADIO_VFO.RIGHT].update({f"{icon.name}": False})
+        self.icons['SIGNAL'] = 0
+        self.icons[RADIO_VFO.LEFT]['SIGNAL'] = 0
+        self.icons[RADIO_VFO.RIGHT]['SIGNAL'] = 0
 
     def get_cmd_pkt(self, cmd: RADIO_TX_CMD, payload: bytes = None):
         cmd_name = cmd.name
@@ -62,6 +79,20 @@ class SerialRadio:
         else:
             return cmd_data
     
+    def set_volume(self, vfo: RADIO_VFO, vol: int = 25):
+        vfo = str(vfo)
+        payload = self.packet.vol_sq_to_packet(value=vol)
+        cmd = RADIO_TX_CMD[f"{vfo}_VOLUME"]
+        
+        self.exe_cmd(cmd=cmd, payload=payload)
+        
+    def set_squelch(self, vfo: RADIO_VFO, sq: int = 25):
+        vfo = str(vfo)
+        payload = self.packet.vol_sq_to_packet(value=sq)
+        cmd = RADIO_TX_CMD[f"{vfo}_SQUELCH"]
+        
+        self.exe_cmd(cmd=cmd, payload=payload)
+    
     def exe_cmd(self, cmd: RADIO_TX_CMD, payload: bytes = None):
         cmd_name = cmd.name
         cmd_data = self.get_cmd_pkt(cmd=cmd,payload=payload)
@@ -69,9 +100,13 @@ class SerialRadio:
         
         #If above was a button/key press, we need to release button/return control to body
         if cmd_name.find("LEFT") == -1 and cmd_name.find("RIGHT") == -1 and cmd_name != "L_VOLUME" and cmd_name != "L_SQUELCH" and cmd_name != "R_VOLUME" and cmd_name != "R_SQUELCH":
-            cmd_data2 = self.get_cmd_pkt(cmd=RADIO_TX_CMD.DEFAULT)
-            cmd_pkt2 = self.packet.create_tx_packet(payload=cmd_data2)
-            cmd_pkt += cmd_pkt2
+            if cmd_name == "MIC_PTT" and self.mic_ptt == False:
+                self.mic_ptt = True
+            else:
+                self.mic_ptt = False
+                cmd_data2 = self.get_cmd_pkt(cmd=RADIO_TX_CMD.DEFAULT)
+                cmd_pkt2 = self.packet.create_tx_packet(payload=cmd_data2)
+                cmd_pkt += cmd_pkt2
         
         self.protocol.send_packet(cmd_pkt)
 
@@ -147,6 +182,55 @@ class SerialPacket:
         self.protocol = protocol
         if protocol != None:
             self.radio = protocol.radio
+        #with dpg.theme() as black_text_theme:
+        #    with dpg.theme_component(dpg.mvAll):
+        #        dpg.add_theme_color(dpg.mvThemeCol_Text, (37, 37, 38, 255))
+        #self.black_text_theme = black_text_theme
+        #with dpg.theme() as red_text_theme:
+        #    with dpg.theme_component(dpg.mvAll):
+        #        dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 0, 0, 255))  # RGBA Red
+        #self.red_text_theme = red_text_theme
+        
+        self.display_packets_icon_map = (
+            {},
+            {},
+            {
+                #Data index 2
+                0x02: "APO",
+                0x08: "LOCK",
+                0x20: "KEY2",
+                0x80: "SET"
+            },
+            {
+                #Data index 3
+                0x02: "NEG",
+                0x08: "POS",
+                0x20: "TX",
+                0x80: "MAIN"
+            },
+            {
+                #Data index 4
+                0x02: "PREF",
+                0x08: "SKIP",
+                0x20: "ENC",
+                0x80: "DEC"
+            },
+            {
+                #Data index 5
+                0x02: "DCS",
+                0x08: "MUTE",
+                0x20: "MT",
+                0x80: "BUSY"
+            },
+            {
+                #Data index 6
+                0x00: "H",
+                0x02: "M",
+                0x08: "L",
+                #0x20: "D9600",
+                0x80: "AM"
+            }
+        )
 
     def create_tx_packet(self, payload: bytes):
         """
@@ -230,26 +314,33 @@ class SerialPacket:
                 match packet_data[0]:
                     case 0x43:
                         #print("L<",end="")
+                        t=""
                         self.radio.vfo_active_processing = str(RADIO_VFO.LEFT)
+                        #print("VFO act pro: ",str(RADIO_VFO.LEFT))
                     case 0xC3:
                         #print("R<",end="")
+                        t=""
                         self.radio.vfo_active_processing = str(RADIO_VFO.RIGHT)
+                        #print("VFO act pro: ",str(RADIO_VFO.RIGHT))
                     case 0x03:
                         self.radio.vfo_change = False
+                        print("vfo_change: False")
                     case 0x83:
                         self.radio.vfo_change = False
+                        print("vfo_change: False")
                         if self.radio.connect_process == True:
                             self.radio.connect_process = False
             case RADIO_RX_CMD.DISPLAY_ICONS.value:
-                match packet_data[0]:
-                    case 0x40:
-                         match packet_data[3]:
-                             case 0x80:
-                                self.radio.vfo_active = str(RADIO_VFO.LEFT)
-                    case 0xC0:
-                         match packet_data[3]:
-                             case 0x80:
-                                self.radio.vfo_active = str(RADIO_VFO.RIGHT)
+                self.process_display_packet(packet=packet_data)
+                #match packet_data[0]:
+                #    case 0x40:
+                #         match packet_data[3]:
+                #             case 0x80:
+                #                self.radio.vfo_active = str(RADIO_VFO.LEFT)
+                #    case 0xC0:
+                #         match packet_data[3]:
+                #             case 0x80:
+                #                self.radio.vfo_active = str(RADIO_VFO.RIGHT)
             case RADIO_RX_CMD.ICON_SET.value:
                 match packet_data[0]:
                     case 0x00:
@@ -263,18 +354,47 @@ class SerialPacket:
                 match packet_data[0]:
                     case 0x01:
                         self.radio.vfo_active = str(RADIO_VFO.LEFT)
-                        self.radio.vfo_active_processing = str(RADIO_VFO.LEFT)
+                        #self.radio.vfo_active_processing = str(RADIO_VFO.LEFT)
                         self.radio.vfo_change = True
                         print(f"{self.radio.vfo_active}<***Left  VFO Activated***>{self.radio.vfo_active}")
+                        self.set_theme_black(tag=f"icon_{str(RADIO_VFO.LEFT).lower()}_main")
+                        self.set_theme_red(tag=f"icon_{str(RADIO_VFO.LEFT).lower()}_main")
                     case 0x81:
                         self.radio.vfo_active = str(RADIO_VFO.RIGHT)
-                        self.radio.vfo_active_processing = str(RADIO_VFO.RIGHT)
+                        #self.radio.vfo_active_processing = str(RADIO_VFO.RIGHT)
                         self.radio.vfo_change = True
                         print(f"{self.radio.vfo_active}<***Right VFO Activated***>{self.radio.vfo_active}")
+                        self.set_theme_black(tag=f"icon_{str(RADIO_VFO.RIGHT).lower()}_main")
+                        self.set_theme_red(tag=f"icon_{str(RADIO_VFO.RIGHT).lower()}_main")
+            case RADIO_RX_CMD.ICON_BUSY.value:
+                match packet_data[0]:
+                    case 0x00:
+                        self.set_theme_white(tag="icon_l_smeter")
+                    case 0x01:
+                        self.set_theme_red(tag="icon_l_smeter")
+                    case 0x80:
+                        self.set_theme_white(tag="icon_r_smeter")
+                    case 0x81:
+                        self.set_theme_red(tag="icon_r_smeter")
+            case RADIO_RX_CMD.ICON_SIG_BARS.value:
+                sig = packet_data[0]
+                if sig >= 0x00 and sig <= 0x09:
+                    update_signal(vfo=RADIO_VFO.LEFT,s_value=sig)
+                elif sig >= 0x80 and sig <= 0x89:
+                    sig = sig - 0x80
+                    update_signal(vfo=RADIO_VFO.RIGHT,s_value=sig)
+                else:
+                    print("OSIG:",sig)
             case RADIO_RX_CMD.ICON_DOT_1ST.value:
                 match packet_data[0]:
                     case 0x40:
-                        print("")
+                        self.radio.vfo_active_processing = str(RADIO_VFO.LEFT)
+                    case 0x41:
+                        self.radio.vfo_active_processing = str(RADIO_VFO.LEFT)
+                    case 0xC0:
+                        self.radio.vfo_active_processing = str(RADIO_VFO.RIGHT)
+                    case 0xC1:
+                        self.radio.vfo_active_processing = str(RADIO_VFO.RIGHT)
             case RADIO_RX_CMD.STARTUP_1.value:
                 match packet_data[0]:
                     case 0x00:
@@ -298,18 +418,120 @@ class SerialPacket:
                     case 0xFF:
                         self.radio.startup = False
                         print("*******Startup complete*******\n")
+            case _:
+                print(F"Unkown pkt: {packet.hex().upper()}")
 
-    def vol_sq_to_packet(self, volume: int) -> bytes:
-        if not (0 <= volume <= 100):
-            raise ValueError("Volume must be >= 0 and <= 100")
+    def set_theme_black(self, tag):
+        with dpg.theme() as black_text_theme:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, (37, 37, 38, 255))
+        dpg.bind_item_theme(tag, black_text_theme)
+
+    def set_theme_red(self, tag):
+        with dpg.theme() as red_text_theme:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 0, 0, 255))  # RGBA Red
+        dpg.bind_item_theme(tag, red_text_theme)
+        
+    def set_theme_white(self, tag):
+        with dpg.theme() as red_text_theme:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 255, 255, 255))  # RGBA Red
+        dpg.bind_item_theme(tag, red_text_theme)
+
+    def process_display_packet(self, packet: bytes):
+        #with dpg.theme() as black_text_theme:
+        #    with dpg.theme_component(dpg.mvAll):
+        #        dpg.add_theme_color(dpg.mvThemeCol_Text, (37, 37, 38, 255))
+
+        #with dpg.theme() as red_text_theme:
+        #    with dpg.theme_component(dpg.mvAll):
+        #        dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 0, 0, 255))  # RGBA Red
+
+        match packet[0]:
+            case 0x40:
+                vfo = RADIO_VFO.LEFT
+                self.radio.vfo_active_processing = str(vfo)
+            case 0xC0:
+                vfo = RADIO_VFO.RIGHT
+                self.radio.vfo_active_processing = str(vfo)
+            case _:
+                print(f"Unknown icon display packet: {packet[0]}")
+        match packet[1]:
+            case 0x00:
+                self.radio.icons['SIGNAL'] = 0x00
+            case _:
+                self.radio.icons['SIGNAL'] = packet[1]
+                #update_signal(vfo, packet[1])
+                print(F"SIGNAL PACKET! SIG:{packet[1]}")
+        for x in range(2,6+1):
+            icon_byte = packet[x]
+            icon_map = self.display_packets_icon_map[x]
+            enabled_icons = [name for bit, name in icon_map.items() if icon_byte & bit]
+            disabled_icons = [name for bit, name in icon_map.items() if not icon_byte & bit]
+            if "L" in disabled_icons and "M" in disabled_icons:
+                enabled_icons += "H"
+            for icon in enabled_icons:
+                match icon:
+                    case "ENC" | "DEC" | "POS" | "NEG" | "TX" | "MAIN" | "MT" | "MUTE" | "DCS" | "L" | "M" | "H" | "PREF" | "SKIP":
+                        #dpg.show_item(f"icon_{vfo.lower()}_{icon.lower()}")
+                        #dpg.bind_item_theme(f"icon_{vfo.lower()}_{icon.lower()}", red_text_theme)
+                        tag = f"icon_{str(vfo).lower()}_{icon.lower()}"
+                        self.set_theme_red(tag=tag)
+                        #print(f"Show item: {icon}")
+                    case "APO" | "LOCK" | "SET" | "KEY2":
+                        #dpg.show_item(f"icon_{icon.lower()}")
+                        #dpg.bind_item_theme(f"icon_{icon.lower()}", red_text_theme)
+                        tag = f"icon_{icon.lower()}"
+                        self.set_theme_red(tag=tag)
+                        #print(f"Show item: {icon}")
+                    case "AM":
+                        #dpg.show_item(f"icon_l_{icon.lower()}")
+                        #dpg.bind_item_theme(f"icon_l_{icon.lower()}", red_text_theme)
+                        tag = f"icon_l_{icon.lower()}"
+                        self.set_theme_red(tag=tag)
+                        #print(f"Show item: {icon}")
+                    case _:
+                        print(f"Item not found: {icon}")
+            for icon in disabled_icons:
+                if icon == "H" and "H" in enabled_icons:
+                    continue
+                match icon:
+                    case "ENC" | "DEC" | "POS" | "NEG" | "TX" | "MAIN" | "MT" | "MUTE" | "DCS" | "L" | "M" | "H" | "PREF" | "SKIP":
+                        #dpg.hide_item(f"icon_{vfo.lower()}_{icon.lower()}")
+                        #dpg.bind_item_theme(f"icon_{vfo.lower()}_{icon.lower()}", black_text_theme)
+                        tag = f"icon_{str(vfo).lower()}_{icon.lower()}"
+                        self.set_theme_black(tag=tag)
+                        #print(f"Hide item: {icon}")
+                    case "APO" | "LOCK" | "SET" | "KEY2":
+                        #dpg.hide_item(f"icon_{icon.lower()}")
+                        #dpg.bind_item_theme(f"icon_{icon.lower()}", black_text_theme)
+                        tag = f"icon_{icon.lower()}"
+                        self.set_theme_black(tag=tag)
+                        #print(f"Hide item: {icon}")
+                    case "AM":
+                        #dpg.hide_item(f"icon_l_{icon.lower()}")
+                        #dpg.bind_item_theme(f"icon_l_{icon.lower()}", black_text_theme)
+                        tag = f"icon_l_{icon.lower()}"
+                        self.set_theme_black(tag=tag)
+                        #print(f"Hide item: {icon}")
+                    case _:
+                        print(f"Item not not found: {icon}")
+
+            print("Enabled icons:", enabled_icons)
+            print("Disabled icons:", disabled_icons)
+
+    def vol_sq_to_packet(self, value: int) -> bytes:
+        if not (0 <= value <= 100):
+            raise ValueError("Value must be >= 0 and <= 100")
 
         max_raw = 0x03AC #940
 
-        if volume == 0:
+        if value == 0:
             raw_value = 0
         else:
             # Spread values 1–100 evenly over 1–940
-            raw_value = round((volume / 100) * max_raw)
+            raw_value = round((value / 100) * max_raw)
 
         return raw_value.to_bytes(2, byteorder='little')
 
@@ -337,60 +559,207 @@ def build_gui(protocol):
         ports.append(f"{port.device}: {port.description}")
         print(f"{port.device} - {port.manufacturer} - {port.description}")
 
-    with dpg.window(label="Radio Front Panel", width=660, height=300, pos=[0,22], no_move=True, on_close=dpg_window_closed, user_data={"protocol": protocol}):
-        # === VFO Channel Displays ===
+    with dpg.theme() as black_text_theme:
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (37, 37, 38, 255)) #(255, 0, 0, 255) (37, 37, 38, 255)
+
+    with dpg.window(label="Radio Front Panel", width=580, height=480, pos=[0,21], no_move=True, on_close=dpg_window_closed, user_data={"protocol": protocol}):
+        # === Hyper Mem Buttons A-F ===
         with dpg.group(horizontal=True):
-            dpg.add_text("CH:", indent=21)
+            dpg.add_text("Hyper Memories: ", indent=45)
+            for label in ["A", "B", "C", "D", "E", "F"]:
+                dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": f"H{label}", "protocol": protocol, "vfo": RADIO_VFO.NONE})
+
+        dpg.add_spacer(height=5)
+        dpg.add_separator()
+        dpg.add_spacer(height=3)
+
+        # === PREF/SKIP Channel Icons ===
+        with dpg.group(horizontal=True):
+            dpg.add_spacer(width=70)
+            for label in ["PREF", "SKIP"]:
+                label_lower = label.lower()
+                tag = f"icon_l_{label_lower}"
+                dpg.add_text(label, tag=tag)#, show=False)
+                dpg.bind_item_theme(tag, black_text_theme)
+            
+            dpg.add_spacer(width=195)
+            
+            for label in ["PREF", "SKIP"]:
+                label_lower = label.lower()
+                tag = f"icon_r_{label_lower}"
+                dpg.add_text(label, tag=tag)#, show=False)
+                dpg.bind_item_theme(tag, black_text_theme)
+
+        # === VFO Channel Icons ===
+        with dpg.group(horizontal=True):
+            dpg.add_spacer(width=20)
+            for label in ["ENC", "DEC", "POS", "NEG", "TX", "MAIN"]:
+                label_lower = label.lower()
+                tag = f"icon_l_{label_lower}"
+                if label == "POS":
+                    label = "+"
+                elif label == "NEG":
+                    label = "-"
+                dpg.add_text(label, tag=tag)#, show=False)
+                dpg.bind_item_theme(tag, black_text_theme)
+                #dpg.hide_item(tag)
+                dpg.add_spacer(width=1)
+
+            dpg.add_spacer(width=67)
+
+            for label in ["ENC", "DEC", "POS", "NEG", "TX", "MAIN"]:
+                label_lower = label.lower()
+                tag = f"icon_r_{label_lower}"
+                if label == "POS":
+                    label = "+"
+                elif label == "NEG":
+                    label = "-"
+                dpg.add_text(label,tag=tag)#, show=False)
+                dpg.bind_item_theme(tag, black_text_theme)
+                #dpg.hide_item(tag)
+                dpg.add_spacer(width=1)
+
+        dpg.add_spacer(height=2)
+        
+        # === VFO Channel # Displays ===
+        with dpg.group(horizontal=True):
+            dpg.add_text("CH:", indent=31)
             dpg.add_input_text(tag="ch_l_display", readonly=True, width=100, default_value="")
-            dpg.add_spacer(width=231)
+            dpg.add_button(label="UP", width=40, callback=button_callback, user_data={"label": f"DIAL_RIGHT", "protocol": protocol, "vfo": RADIO_VFO.LEFT})
+            dpg.add_spacer(width=83)
             dpg.add_text("CH:")
             dpg.add_input_text(tag="ch_r_display", readonly=True, width=100, default_value="")
+            dpg.add_button(label="UP", width=40, callback=button_callback, user_data={"label": f"DIAL_RIGHT", "protocol": protocol, "vfo": RADIO_VFO.RIGHT})
             
-        # === VFO Frequency Displays ===
+        # === VFO CH Name/Frequency Displays ===
         with dpg.group(horizontal=True):
-            dpg.add_text("VFO L:")
+            dpg.add_text("VFO L:", indent=10)
             dpg.add_input_text(tag="vfo_l_display", readonly=True, width=100, default_value="")
-            dpg.add_spacer(width=210)
+            dpg.add_button(label="DOWN", width=40, callback=button_callback, user_data={"label": f"DIAL_LEFT", "protocol": protocol, "vfo": RADIO_VFO.LEFT})
+            dpg.add_button(label="SEL", width=40, callback=button_callback, user_data={"label": f"DIAL_PRESS", "protocol": protocol, "vfo": RADIO_VFO.LEFT})
+            dpg.add_spacer(width=14)
             dpg.add_text("VFO R:")
             dpg.add_input_text(tag="vfo_r_display", readonly=True, width=100, default_value="")
+            dpg.add_button(label="DOWN", width=40, callback=button_callback, user_data={"label": f"DIAL_LEFT", "protocol": protocol, "vfo": RADIO_VFO.RIGHT})
+            dpg.add_button(label="SEL", width=40, callback=button_callback, user_data={"label": f"DIAL_PRESS", "protocol": protocol, "vfo": RADIO_VFO.RIGHT})
 
+        dpg.add_spacer(height=2)
+
+        with dpg.group(horizontal=True):
+            dpg.add_spacer(width=20)
+            for label in ["MT", "MUTE", "DCS", "AM", "L", "M", "H"]:
+                label_lower = label.lower()
+                tag = f"icon_l_{label_lower}"
+                dpg.add_text(label, tag=tag)#, show=False)
+                dpg.bind_item_theme(tag, black_text_theme)
+                dpg.add_spacer(width=1)
+
+            dpg.add_spacer(width=53)
+            for label in ["MT", "MUTE", "DCS", "AM", "L", "M", "H"]:
+                label_lower = label.lower()
+                tag = f"icon_r_{label_lower}"
+                dpg.add_text(label, tag=tag)#, show=False)
+                dpg.bind_item_theme(tag, black_text_theme)
+                dpg.add_spacer(width=1)
+
+        dpg.add_spacer(height=3)
+
+        # === VFO Volume Slider ===
+        with dpg.group(horizontal=True):
+            dpg.add_text("SQ:",indent=32)
+            dpg.add_slider_int(width=100, default_value=25, max_value=100, callback=sq_callback, user_data={"label": "SQ", "protocol": protocol, "vfo": RADIO_VFO.LEFT})
+            dpg.add_spacer(width=61)
+            dpg.add_text("APO", tag="icon_apo")#, show=False)
+            dpg.bind_item_theme("icon_apo", black_text_theme)
+            #dpg.add_text("LOCK", tag="icon_lock")#, show=False)
+            #dpg.bind_item_theme("icon_lock", black_text_theme)
+            dpg.add_spacer(width=32)
+            dpg.add_text("SQ:")
+            dpg.add_slider_int(width=100, default_value=25, max_value=100, callback=sq_callback, user_data={"label": "SQ", "protocol": protocol, "vfo": RADIO_VFO.RIGHT})
+        
+        # === VFO Squelch Slider ===
+        with dpg.group(horizontal=True):
+            dpg.add_text("VOL:",indent=25)
+            dpg.add_slider_int(width=100, default_value=25, max_value=100, callback=vol_callback, user_data={"label": "VOL", "protocol": protocol, "vfo": RADIO_VFO.LEFT})
+            dpg.add_spacer(width=58)
+            dpg.add_text("LOCK", tag="icon_lock")#, show=False)
+            dpg.bind_item_theme("icon_lock", black_text_theme)
+            dpg.add_spacer(width=21)
+            dpg.add_text("VOL:")
+            dpg.add_slider_int(width=100, default_value=25, max_value=100, callback=vol_callback, user_data={"label": "VOL", "protocol": protocol, "vfo": RADIO_VFO.RIGHT})
+        
         dpg.add_spacer(height=15)
 
         # === VFO Control Buttons + Center Menu Button ===
         with dpg.group(horizontal=True):
             # VFO Left Buttons
+            dpg.add_spacer(width=10)
             for label in ["LOW", "V/M", "HM", "SCN"]:
-                dpg.add_button(label=label, width=60, callback=button_callback, user_data={"label": label, "protocol": protocol, "vfo": RADIO_VFO.LEFT})
+                dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": label.replace("/",""), "protocol": protocol, "vfo": RADIO_VFO.LEFT})
 
-            dpg.add_spacer(width=20)
+            dpg.add_spacer(width=10)
 
             # Center Menu Button
             label = "."
-            dpg.add_button(label=".", width=40, height=20, callback=button_callback, user_data={"label": label, "protocol": protocol, "vfo": RADIO_VFO.NONE})
+            dpg.add_button(label=".", width=40, height=20, callback=button_callback, user_data={"label": "MENU", "protocol": protocol, "vfo": RADIO_VFO.NONE})
 
-            dpg.add_spacer(width=20)
+            dpg.add_spacer(width=10)
 
             # VFO Right Buttons
             for label in ["LOW", "V/M", "HM", "SCN"]:
-                dpg.add_button(label=label, width=60, callback=button_callback, user_data={"label": label, "protocol": protocol, "vfo": RADIO_VFO.RIGHT})
+                dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": label.replace("/",""), "protocol": protocol, "vfo": RADIO_VFO.RIGHT})
 
-        dpg.add_separator()
-
-        # === Buttons A-F ===
+            dpg.add_text("<KEY2", tag="icon_key2")#, show=False)
+            dpg.bind_item_theme("icon_key2", black_text_theme)
+        dpg.add_spacer(height=5)
+        
         with dpg.group(horizontal=True):
-            for label in ["A", "B", "C", "D", "E", "F"]:
-                dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": label, "protocol": protocol, "vfo": RADIO_VFO.NONE})
+            dpg.add_spacer(width=10)
+            dpg.add_progress_bar(default_value=0.0, tag="icon_l_smeter", overlay="S0", width=185)
+            dpg.add_spacer(width=18)
+            dpg.add_text("SET", tag="icon_set")#, show=False)
+            dpg.bind_item_theme("icon_set", black_text_theme)
+            dpg.add_spacer(width=21)
+            dpg.add_progress_bar(default_value=0.0, tag="icon_r_smeter", overlay="S0", width=185)
 
+        dpg.add_spacer(height=3)
         dpg.add_separator()
+        dpg.add_spacer(height=10)
 
-        # === Knob Simulation Buttons ===
+        # === MICROPHONE Keypad ===
+        mic_spacer_width = 20
         with dpg.group(horizontal=True):
-            dpg.add_button(label="VOL/SQ (L)", width=100, callback=button_callback, user_data={"label": label, "protocol": protocol, "vfo": RADIO_VFO.LEFT})
-            dpg.add_spacer(width=300)
-            dpg.add_button(label="SQL/ENC (R)", width=100, callback=button_callback, user_data={"label": label, "protocol": protocol, "vfo": RADIO_VFO.RIGHT})
-    with dpg.window(label="Connection", width=660, height=300, tag="connection_window"):
+            dpg.add_spacer(width=mic_spacer_width)
+            for label in ["1", "2", "3", "A"]:
+                dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": label, "protocol": protocol,"vfo": RADIO_VFO.MIC})
+        with dpg.group(horizontal=True):
+            dpg.add_spacer(width=mic_spacer_width)
+            for label in ["4", "5", "6", "B"]:
+                dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": label, "protocol": protocol, "vfo": RADIO_VFO.MIC})
+        with dpg.group(horizontal=True):
+            dpg.add_spacer(width=mic_spacer_width)
+            for label in ["7", "8", "9", "C"]:
+                dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": label, "protocol": protocol, "vfo": RADIO_VFO.MIC})
+        with dpg.group(horizontal=True):
+            dpg.add_spacer(width=mic_spacer_width)
+            for label in ["*", "0", "#", "D"]:
+                if label == "#":
+                    label = " # "
+                dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": label.replace(" ",""), "protocol": protocol, "vfo": RADIO_VFO.MIC})
+        with dpg.group(horizontal=True):
+            dpg.add_spacer(width=mic_spacer_width)
+            for label in ["P1", "P2", "P3", "P4"]:
+                dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": label, "protocol": protocol, "vfo": RADIO_VFO.MIC})
+
+        dpg.add_button(label="PTT", pos=(240,366), width=60, height=60, callback=button_callback, user_data={"label": "PTT", "protocol": protocol, "vfo": RADIO_VFO.MIC})
+
+     # === Connection Window ===
+    with dpg.window(label="Connection", width=660, height=480, tag="connection_window", no_move=True):
+        dpg.add_spacer(height=5)
         with dpg.group(horizontal=True):
             dpg.add_combo(
+                    indent=5,
                     tag="com_port",
                     items=ports,
                     label="Select Port",
@@ -400,7 +769,7 @@ def build_gui(protocol):
         
         # === Baud Rate Selector ===
         with dpg.group(horizontal=True):
-            dpg.add_text("Baud Rate:")
+            dpg.add_text("Baud Rate:", indent=5)
             dpg.add_combo(
                 tag="baud_rate",
                 items=["4800", "9600", "19200", "38400", "57600", "115200"],
@@ -414,14 +783,20 @@ def build_gui(protocol):
             com_port = dpg.get_value("com_port")
             baudrate = dpg.get_value("baud_rate")
             com_port = com_port[0:com_port.index(":")]
-            dpg.add_button(label="Connect", width=100, callback=port_selected_callback, user_data={"com_port": com_port, "baudrate": baudrate,"protocol": protocol})
+            dpg.add_button(label="Connect", indent=5, width=100, callback=port_selected_callback, user_data={"com_port": com_port, "baudrate": baudrate,"protocol": protocol})
 
-def update_vfo_display(radio):
-    dpg.set_value("vfo_l_display", radio.vfo_text if radio.vfo_active == RADIO_VFO.LEFT else "")
-    dpg.set_value("vfo_r_display", radio.vfo_text if radio.vfo_active == RADIO_VFO.RIGHT else "")
+def update_signal(vfo: RADIO_VFO, s_value: int): # 1 - 9
+    vfo = vfo.value.lower()
+    if s_value == 0:
+        percent = 0
+    else:
+        percent = (s_value - 1) / 8  # Map S1–S9 to 0.0–1.0 range
+    dpg.set_value(f"icon_{vfo}_smeter", percent)
+    dpg.configure_item(f"icon_{vfo}_smeter",overlay=f"S{s_value}")
+    dpg.set_item_label(f"icon_{vfo}_smeter", f"S{s_value}")
 
 def dpg_window_closed(sender, app_data, user_data):
-    user_data['protocol'].transport.close()
+    print("WINDOW CLOSED")
 
 async def connect_serial_async(protocol, com_port, baudrate):
     radio = protocol.radio
@@ -436,13 +811,12 @@ async def connect_serial_async(protocol, com_port, baudrate):
         asyncio.create_task(read_loop(protocol))
         
         radio.connect_process = True
-        radio.exe_cmd(cmd=RADIO_TX_CMD.L_DIAL_RIGHT)
+        #AAFD018081
+        radio.exe_cmd(cmd=RADIO_TX_CMD.STARTUP)
         await asyncio.sleep(0.1)
-        radio.exe_cmd(cmd=RADIO_TX_CMD.L_DIAL_LEFT)
+        radio.exe_cmd(cmd=RADIO_TX_CMD.L_VOLUME_SQUELCH)
         await asyncio.sleep(0.1)
-        radio.exe_cmd(cmd=RADIO_TX_CMD.R_DIAL_RIGHT)
-        await asyncio.sleep(0.1)
-        radio.exe_cmd(cmd=RADIO_TX_CMD.R_DIAL_LEFT)
+        radio.exe_cmd(cmd=RADIO_TX_CMD.R_VOLUME_SQUELCH)
         
         return transport
     except Exception as e:
@@ -463,23 +837,44 @@ def port_selected_callback(sender, app_data, user_data):
 
 def button_callback(sender, app_data, user_data):
     label = user_data["label"]
-    vfo = user_data["vfo"]
+    if user_data["vfo"] == RADIO_VFO.LEFT or user_data["vfo"] == RADIO_VFO.RIGHT or user_data["vfo"] == RADIO_VFO.MIC:
+        vfo = user_data["vfo"].value
+    else:
+        vfo = user_data["vfo"]
     protocol = user_data["protocol"]
     radio = protocol.radio
 
-    match vfo:
-        case RADIO_VFO.LEFT:
-            match label:
-                case "LOW":
-                    radio.exe_cmd(cmd=RADIO_TX_CMD.L_DIAL_LEFT)
-                    radio.exe_cmd(cmd=RADIO_TX_CMD.L_DIAL_RIGHT)
-        case RADIO_VFO.RIGHT:
-            match label:
-                case "LOW":
-                    radio.exe_cmd(cmd=RADIO_TX_CMD.R_DIAL_LEFT)
-                    radio.exe_cmd(cmd=RADIO_TX_CMD.R_DIAL_RIGHT)
+    if vfo == RADIO_VFO.LEFT.value or vfo == RADIO_VFO.RIGHT.value or vfo == RADIO_VFO.MIC.value:
+        match label:
+            case "LOW":
+                radio.exe_cmd(cmd=RADIO_TX_CMD[f"{vfo}_{label}"])
+            case _:
+                radio.exe_cmd(cmd=RADIO_TX_CMD[f"{vfo}_{label}"])
+    else:
+        match label:
+            case "MENU":
+                radio.exe_cmd(cmd=RADIO_TX_CMD[label])
+            case "HA"|"HB"|"HC"|"HD"|"HE"|"HF":
+                radio.exe_cmd(cmd=RADIO_TX_CMD[f"HYPER_{label.replace("H","")}"])
 
     print(f"Sent {label} button command for {vfo} VFO.") #: {packet.hex().upper()}")
+
+def sq_callback(sender, app_data, user_data):
+    label = user_data["label"].replace("/","")
+    vfo = user_data["vfo"].value
+    protocol = user_data["protocol"]
+    radio = protocol.radio
+    
+    radio.set_squelch(vfo=vfo,sq=app_data)
+
+def vol_callback(sender, app_data, user_data):
+    label = user_data["label"].replace("/","")
+    vfo = user_data["vfo"].value
+    protocol = user_data["protocol"]
+    radio = protocol.radio
+    
+    radio.set_volume(vfo=vfo,vol=app_data)
+
 
 async def read_loop(protocol: SerialProtocol):
     while True:
@@ -529,7 +924,7 @@ async def main():
     if radio.dpg_enabled == True:
         dpg.create_context()
         build_gui(protocol)
-        dpg.create_viewport(title="Radio GUI", width=675, height=300)
+        dpg.create_viewport(title="TYT TH9800 CAT Control", width=575, height=535)
         dpg.setup_dearpygui()
         dpg.show_viewport()
     #transport, _ = await serial_asyncio.create_serial_connection(
