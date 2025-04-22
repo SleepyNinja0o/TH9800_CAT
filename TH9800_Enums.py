@@ -12,6 +12,7 @@ class RADIO_POWER(Enum):
 class RADIO_VFO(Enum):
     LEFT = "L"
     RIGHT = "R"
+    MIC = "MIC"
     NONE = "N"
 
     def __str__(self):
@@ -25,26 +26,50 @@ class RADIO_VFO_TYPE(Enum):
         return str(self.value)
 
 class RADIO_RX_ICON(Enum):
-    APO = 0x02
-    LOCK = 0x0C
-    KEY2 = 0x20
-    MAIN = 0x80
-    RPT_OFFSET_NEG = 0x02
-    RPT_OFFSET_POS = 0x08
-    CHAN_PREF = 0x02
-    CHAN_SKIP = 0x08
-    CTCSS_ENC = 0x20
-    CTCSS_ENCDEC = 0xA0
-    DCS = 0x02
-    MUTE = 0x08
-    MEM_TUNE = 0x20
-    AM = 0x80
-    PWR_HIGH = 0x00
-    PWR_MED = 0x02
-    PWR_LOW = 0x08
+    #Data index 1
+    SIGNAL = (0x00,1) # to 0x09
 
-    def __int__(self):
-        return int(self.value)
+    #Data index 2
+    APO = (0x02,2)
+    LOCK = (0x08,2)
+    KEY2 = (0x20,2)
+    SET = (0x80,2)
+    
+    #Data index 3
+    NEG = (0x02,3)
+    POS = (0x08,3)
+    TX = (0x20,3) #Not sent by radio
+    MAIN = (0x80,3)
+    
+    #Data index 4
+    PREF = (0x02,4)
+    SKIP = (0x08,4)
+    ENC = (0x20,4)
+    #DEC_ONLY = (0x80,4) #Not sent by radio
+    DEC = (0xA0,4)
+    
+    #Data index 5
+    DCS = (0x02,5)
+    MUTE = (0x08,5)
+    MT = (0x20,5)
+    BUSY = (0x80,5)
+    
+    #Data index 6
+    H = (0x00,6)
+    M = (0x02,6)
+    L = (0x08,6)
+    #D9600 = (0x20,6) #Not sent by radio
+    AM = (0x80,6)
+
+    def __init__(self, data: int, pos: int):
+        self.data = data
+        self.pos = pos
+
+    def as_dict(self):
+        return {"data": self.data, "pos": self.pos}
+
+    def __str__(self):
+        return str(self.name)
 
 class RADIO_RX_CMD(Enum):
     #Startup CMDs
@@ -94,6 +119,7 @@ class RADIO_RX_CMD(Enum):
 class RADIO_TX_CMD(Enum):
     #Default Packet (Also sent after button press as a button release/return control to body) **See __init__**
     DEFAULT = (bytearray(),0,0)
+    STARTUP = (bytearray([0x80]),0,12)
     
     #Menu Button
     MENU = (bytearray([0x00,0x20]),3,5)
