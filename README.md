@@ -1,12 +1,19 @@
 # TYT TH-9800 CAT Control via Remote Head Serial Protocol
 ## Required
-- Python (written in v3.13) + Modules:
-  - serial_asyncio module (pip install pyserial-asyncio)
-  - dearpygui module (pip install dearpygui)
+### Software
+- Install [Python](https://www.python.org/downloads/) (written in v3.13)
+- Install Python modules:
+  - [pySerial-asyncio](https://pypi.org/project/pyserial-asyncio/) module (pip install pyserial-asyncio)
+  - [DearPyGui](https://pypi.org/project/dearpygui/) module (pip install dearpygui)
+### Hardware
 - [RJ12 Breakout Board](https://www.amazon.com/dp/B00CMOW40Q) (Makes wiring easier)
 - [USB to TTL UART Adapter](https://www.amazon.com/dp/B07WX2DSVB) (Any USB serial (UART) adapter should work)
 - Optional switch to change TX line between USB UART and Radio Head (RX line doesn't need a switch)
   - I believe there are ways to connect two TX lines to one RX but it requires a more complex circuit (2 Diodes and pullup resistor??)
+
+## How to Run
+ - Right click "TH9800_CAT.py" file and start with Python.
+ - Open command line, CD to directory, and run "python.exe TH9800_CAT.py".
 
 ## Setup
 ![TH9800 Serial USB Setup](https://github.com/user-attachments/assets/12cae08c-5a36-4b19-ae55-cad5e6db2fa0)
