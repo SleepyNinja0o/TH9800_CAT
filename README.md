@@ -16,6 +16,8 @@
  - Open command line, CD to directory, and run "python.exe TH9800_CAT.py".
 
 ## Setup
+![Logic Analyzer](https://github.com/user-attachments/assets/d5947f75-5652-4114-9efd-5413d0a7ce16)
+
 ![TH9800 Serial USB Setup](https://github.com/user-attachments/assets/12cae08c-5a36-4b19-ae55-cad5e6db2fa0)
 
 ![RJ12 Pinout at Radio Body](https://github.com/user-attachments/assets/d25ceff1-73d7-40d8-be64-9485357af558)
