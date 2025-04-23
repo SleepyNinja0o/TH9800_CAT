@@ -6,25 +6,6 @@ import serial_asyncio
 import asyncio
 import threading
 
-"""
-    On initize, grab different configs from radio such as:
-        Active VFO
-        (Channel # + Name) (Or Freq) + Other Params (Offset, Power, DCs, etc)
-        On startup, could click left and right knob to get VFO/Mem mode and determine active VFO (active VFO will flash channel # icon)
-
-import importlib
-import TH9800_CAT
-
-def clear():
-    for num in range(1,100):
-        print("\n")
-
-def reload():
-    TH9800_CAT.dpg.destroy_context()
-    importlib.reload(TH9800_CAT)
-    TH9800_CAT.asyncio.run(TH9800_CAT.main())
-"""
-
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 debug = True
@@ -243,14 +224,6 @@ class SerialPacket:
         self.protocol = protocol
         if protocol != None:
             self.radio = protocol.radio
-        #with dpg.theme() as black_text_theme:
-        #    with dpg.theme_component(dpg.mvAll):
-        #        dpg.add_theme_color(dpg.mvThemeCol_Text, (37, 37, 38, 255))
-        #self.black_text_theme = black_text_theme
-        #with dpg.theme() as red_text_theme:
-        #    with dpg.theme_component(dpg.mvAll):
-        #        dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 0, 0, 255))  # RGBA Red
-        #self.red_text_theme = red_text_theme
         
         self.display_packets_icon_map = (
             {},
@@ -316,7 +289,8 @@ class SerialPacket:
                 match packet_data[0]:
                     case 0x60:
                         printd(f"{self.radio.vfo_active_processing}<***Set Freq Fast [{radio_channel}][{radio_text}]***>{self.radio.vfo_active_processing}")
-                        radio_text = f"**{radio_text}**"
+                        radio_text = f"*{radio_text}*"
+                        self.radio.vfo_text = radio_text
                         dpg.set_value(f"ch_{self.radio.vfo_active_processing.lower()}_display",radio_channel)
                         dpg.set_value(f"vfo_{self.radio.vfo_active_processing.lower()}_display",radio_text)
                     case (0x40|0xC0):
@@ -425,8 +399,14 @@ class SerialPacket:
                 else:
                     printd("OSIG:",sig)
             case RADIO_RX_CMD.ICON_DOT_1ST.value:
+                radio_text_fast = False
                 radio_text = self.radio.vfo_text
+                if radio_text.find("*") != -1:
+                    radio_text_fast = True
+                    radio_text = radio_text.replace("*","")
                 radio_text_formatted = self.format_frequency(radio_text)
+                if radio_text_fast == True:
+                    radio_text_formatted = f"*{radio_text_formatted}*"
                 match packet_data[0]:
                     case 0x40:
                         self.radio.vfo_active_processing = str(RADIO_VFO.LEFT)
