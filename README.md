@@ -1,15 +1,21 @@
 # TYT TH-9800 CAT Control via Remote Head Serial Protocol 
+## Research
+There was no documentation on the remote radio head protocol so I had to reverse engineer it. Here is what I used:
+- Hardware:
+  - [USB Logic Analyzer 24MHz 8CH](https://www.amazon.com/dp/B0CHZ13R6D)
+  - [USB to TTL UART Adapter](https://www.amazon.com/dp/B07WX2DSVB) (Any USB serial adapter (UART) should work)
+  - [RJ12 Breakout Board](https://www.amazon.com/dp/B00CMOW40Q) (Makes wiring easier)
+  - [6 Pins 3 Position DPDT Switch](https://www.amazon.com/dp/B07MV52Z9R) (Optional switch to change TX line between USB UART and Radio Head) (RX line doesn't need a switch)
+- Software
+  - [Logic](https://www.saleae.com/pages/downloads) software used with the Logic Analyzer to decode packets to/from radio
+  - [SerialTool](https://serialtool.com/_en/index.php) software used to capture, modify and replay packets
+
 ## Required
 ### Software <a href="https://buymeacoffee.com/sleepyninja" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-green.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" align="right"></a>
 - Install [Python](https://www.python.org/downloads/) (written in v3.13)
 - Install Python modules:
   - [pySerial-asyncio](https://pypi.org/project/pyserial-asyncio/) module (pip install pyserial-asyncio)
   - [DearPyGui](https://pypi.org/project/dearpygui/) module (pip install dearpygui)
-### Hardware
-- [RJ12 Breakout Board](https://www.amazon.com/dp/B00CMOW40Q) (Makes wiring easier)
-- [USB to TTL UART Adapter](https://www.amazon.com/dp/B07WX2DSVB) (Any USB serial (UART) adapter should work)
-- Optional switch to change TX line between USB UART and Radio Head (RX line doesn't need a switch)
-  - I believe there are ways to connect two TX lines to one RX but it requires a more complex circuit (2 Diodes and pullup resistor??)
 
 ## How to Run
  - Right click "TH9800_CAT.py" file and start with Python.
