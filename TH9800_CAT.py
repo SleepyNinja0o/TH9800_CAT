@@ -8,7 +8,7 @@ import threading
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
-debug = True
+debug = False
 
 def start_event_loop():
     loop.run_forever()
@@ -359,26 +359,16 @@ class SerialPacket:
                 match packet_data[0]:
                     case 0x01:
                         self.radio.vfo_active = str(RADIO_VFO.LEFT)
-                        #self.radio.vfo_active_processing = str(RADIO_VFO.LEFT)
                         self.radio.vfo_change = True
                         printd(f"{self.radio.vfo_active}<***Left  VFO Activated***>{self.radio.vfo_active}")
                         self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.MAIN, value=False)
                         self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.MAIN, value=True)
-                        #self.radio.set_dpg_theme(tag=f"icon_{str(RADIO_VFO.RIGHT).lower()}_main",color="black")
-                        #self.radio.set_dpg_theme(tag=f"icon_{str(RADIO_VFO.LEFT).lower()}_main",color="red")
-                        #self.set_theme_black(tag=f"icon_{str(RADIO_VFO.LEFT).lower()}_main")
-                        #self.set_theme_red(tag=f"icon_{str(RADIO_VFO.LEFT).lower()}_main")
                     case 0x81:
                         self.radio.vfo_active = str(RADIO_VFO.RIGHT)
-                        #self.radio.vfo_active_processing = str(RADIO_VFO.RIGHT)
                         self.radio.vfo_change = True
                         printd(f"{self.radio.vfo_active}<***Right VFO Activated***>{self.radio.vfo_active}")
-                        #self.radio.set_dpg_theme(tag=f"icon_{str(RADIO_VFO.LEFT).lower()}_main",color="black")
-                        #self.radio.set_dpg_theme(tag=f"icon_{str(RADIO_VFO.RIGHT).lower()}_main",color="red")
                         self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.MAIN, value=True)
                         self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.MAIN, value=False)
-                        #self.set_theme_black(tag=f"icon_{str(RADIO_VFO.RIGHT).lower()}_main")
-                        #self.set_theme_red(tag=f"icon_{str(RADIO_VFO.RIGHT).lower()}_main")
             case RADIO_RX_CMD.ICON_BUSY.value:
                 match packet_data[0]:
                     case 0x00:
@@ -447,14 +437,6 @@ class SerialPacket:
                 printd(F"Unkown pkt: {packet.hex().upper()}")
 
     def process_display_packet(self, packet: bytes):
-        #with dpg.theme() as black_text_theme:
-        #    with dpg.theme_component(dpg.mvAll):
-        #        dpg.add_theme_color(dpg.mvThemeCol_Text, (37, 37, 38, 255))
-
-        #with dpg.theme() as red_text_theme:
-        #    with dpg.theme_component(dpg.mvAll):
-        #        dpg.add_theme_color(dpg.mvThemeCol_Text, (255, 0, 0, 255))  # RGBA Red
-
         match packet[0]:
             case 0x40:
                 vfo = RADIO_VFO.LEFT
@@ -485,65 +467,6 @@ class SerialPacket:
                 self.radio.set_icon(vfo=vfo,icon=RADIO_RX_ICON[f"{icon}"],value=False)
             printd(f"Enabled icons: {enabled_icons}")
             printd(f"Disabled icons: {disabled_icons}")
-            continue
-            match icon:
-                case "ENC" | "DEC" | "POS" | "NEG" | "TX" | "MAIN" | "MT" | "MUTE" | "DCS" | "L" | "M" | "H" | "PREF" | "SKIP":
-                    #dpg.show_item(f"icon_{vfo.lower()}_{icon.lower()}")
-                    #dpg.bind_item_theme(f"icon_{vfo.lower()}_{icon.lower()}", red_text_theme)
-                    #tag = f"icon_{str(vfo).lower()}_{icon.lower()}"
-                    #self.set_theme_red(tag=tag)
-                    self.radio.set_icon(vfo=vfo,icon=RADIO_RX_ICON[icon],value=True)
-                    #printd(f"Show item: {icon}")
-                case "APO" | "LOCK" | "SET" | "KEY2":
-                    #dpg.show_item(f"icon_{icon.lower()}")
-                    #dpg.bind_item_theme(f"icon_{icon.lower()}", red_text_theme)
-                    #tag = f"icon_{icon.lower()}"
-                    self.radio.set_icon(vfo=vfo,icon=RADIO_RX_ICON[icon],value=True)
-                    #self.set_theme_red(tag=tag)
-                    #printd(f"Show item: {icon}")
-                case "AM":
-                    #dpg.show_item(f"icon_l_{icon.lower()}")
-                    #dpg.bind_item_theme(f"icon_l_{icon.lower()}", red_text_theme)
-                    #tag = f"icon_l_{icon.lower()}"
-                    self.radio.set_icon(vfo=vfo,icon=RADIO_RX_ICON[icon],value=True)
-                    #self.set_theme_red(tag=tag)
-                    #printd(f"Show item: {icon}")
-                case _:
-                    printd(f"Item not found: {icon}")
-            for icon in disabled_icons:
-                if icon == "H" and "H" in enabled_icons:
-                    continue
-                self.radio.set_icon(vfo=vfo,icon=RADIO_RX_ICON[icon],value=False)
-            printd("Enabled icons:", enabled_icons)
-            printd("Disabled icons:", disabled_icons)
-            break
-            match icon:
-                case "ENC" | "DEC" | "POS" | "NEG" | "TX" | "MAIN" | "MT" | "MUTE" | "DCS" | "L" | "M" | "H" | "PREF" | "SKIP":
-                    #dpg.hide_item(f"icon_{vfo.lower()}_{icon.lower()}")
-                    #dpg.bind_item_theme(f"icon_{vfo.lower()}_{icon.lower()}", black_text_theme)
-                    tag = f"icon_{str(vfo).lower()}_{icon.lower()}"
-                    
-                    self.set_theme_black(tag=tag)
-                    #self.radio.set_icon(
-                    #printd(f"Hide item: {icon}")
-                case "APO" | "LOCK" | "SET" | "KEY2":
-                    #dpg.hide_item(f"icon_{icon.lower()}")
-                    #dpg.bind_item_theme(f"icon_{icon.lower()}", black_text_theme)
-                    tag = f"icon_{icon.lower()}"
-                    
-                    self.set_theme_black(tag=tag)
-                    
-                    #printd(f"Hide item: {icon}")
-                case "AM":
-                    #dpg.hide_item(f"icon_l_{icon.lower()}")
-                    #dpg.bind_item_theme(f"icon_l_{icon.lower()}", black_text_theme)
-                    tag = f"icon_l_{icon.lower()}"
-                    
-                    self.set_theme_black(tag=tag)
-                    
-                    #printd(f"Hide item: {icon}")
-                case _:
-                    printd(f"Item not not found: {icon}")
 
     def vol_sq_to_packet(self, value: int) -> bytes:
         if not (0 <= value <= 100):
@@ -817,7 +740,6 @@ def update_signal(vfo: RADIO_VFO, s_value: int):
         percent = (s_value - 1) / 8  # Map S1–S9 to 0.0–1.0 range
     dpg.set_value(f"icon_{vfo}_signal", percent)
     dpg.configure_item(f"icon_{vfo}_signal",overlay=f"S{s_value}")
-    #dpg.set_item_label(f"icon_{vfo}_signal", f"S{s_value}")
 
 async def connect_serial_async(protocol, com_port, baudrate):
     radio = protocol.radio
@@ -949,12 +871,6 @@ async def main():
         dpg.create_viewport(title="TYT TH9800 CAT Control", width=575, height=580)
         dpg.setup_dearpygui()
         dpg.show_viewport()
-    #transport, _ = await serial_asyncio.create_serial_connection(
-    #    loop, lambda: protocol, 'COM25', baudrate=19200
-    #)
-
-    #await protocol.ready.wait()
-    #asyncio.create_task(read_loop(protocol))
 
     try:
         if radio.dpg_enabled == True:
