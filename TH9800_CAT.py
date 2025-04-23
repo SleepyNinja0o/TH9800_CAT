@@ -798,8 +798,13 @@ def button_callback(sender, app_data, user_data):
     radio = protocol.radio
 
     match label.upper():
-        case "L_VM"|"R_VM":
-                switch_vfo_type(vfo=user_data["vfo"])
+        case "VM":
+            radio.switch_vfo_type(vfo=user_data["vfo"])
+        case "*":
+            label = "STAR"
+        case "#":
+            label = "POUND"
+            
 
     if vfo == RADIO_VFO.LEFT.value or vfo == RADIO_VFO.RIGHT.value or vfo == RADIO_VFO.MIC.value:
         radio.exe_cmd(cmd=RADIO_TX_CMD[f"{vfo}_{label}"])
