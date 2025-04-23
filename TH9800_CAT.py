@@ -369,6 +369,16 @@ class SerialPacket:
                         printd(f"{self.radio.vfo_active}<***Right VFO Activated***>{self.radio.vfo_active}")
                         self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.MAIN, value=True)
                         self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.MAIN, value=False)
+            case RADIO_RX_CMD.ICON_TX.value:
+                match packet_data[0]:
+                    case 0x00:
+                        self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.TX, value=False)
+                    case 0x01:
+                        self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.TX, value=True)
+                    case 0x80:
+                        self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.TX, value=False)
+                    case 0x81:
+                        self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.TX, value=True)
             case RADIO_RX_CMD.ICON_BUSY.value:
                 match packet_data[0]:
                     case 0x00:
