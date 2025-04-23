@@ -29,3 +29,10 @@
 ![Screenshot 2025-04-22 021954](https://github.com/user-attachments/assets/e916092d-2c22-405b-92a5-9a8e0ce38115)
 ### Regular Radio Interface
 ![Screenshot 2025-04-22 214628](https://github.com/user-attachments/assets/a0899888-b840-46c8-9e71-e6cdf84f9e93)
+
+
+## Disclaimer
+
+This software is provided "as is", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and noninfringement. In no event shall the authors or copyright holders be liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the software or the use or other dealings in the software.
+
+Use at your own risk.
