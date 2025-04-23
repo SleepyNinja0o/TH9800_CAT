@@ -733,14 +733,24 @@ def build_gui(protocol):
                 default_value="19200",
                 width=100
             )
+            dpg.add_spacer(width=85)
+            dpg.add_button(label="Refresh COM Ports", width=150, callback=refresh_comports_callback)
         dpg.add_spacer(height=15)
         
         with dpg.group(horizontal=True):
             # dpg.set_value(f"vfo_{self.radio.vfo_active_processing.lower()}_display",radio_text)
+            com_port = ""
+            baudrate = ""
             com_port = dpg.get_value("com_port")
             baudrate = dpg.get_value("baud_rate")
-            com_port = com_port[0:com_port.index(":")]
+
             dpg.add_button(label="Connect", indent=5, width=100, callback=port_selected_callback, user_data={"com_port": com_port, "baudrate": baudrate,"protocol": protocol})
+
+        if len(available_ports) == 0:
+            with dpg.window(label="Error", modal=True, no_close=True) as modal_id:
+                dpg.add_text("No COM ports available for connection!")
+                dpg.add_button(label="Ok", width=75, user_data=(modal_id, True), callback=cancel_callback)
+            dpg.set_item_pos(modal_id, [120, 100])
 
 def update_signal(vfo: RADIO_VFO, s_value: int):
     vfo = vfo.value.lower()
@@ -773,20 +783,46 @@ async def connect_serial_async(protocol, com_port, baudrate):
         
         return transport
     except Exception as e:
-        printd(f"Connection failed: {e}")
+        print(f"Connection failed: {e}")
+        with dpg.window(label="Error", modal=True, no_close=True) as modal_id:
+            dpg.add_text(e, wrap=300)
+            dpg.add_button(label="Ok", width=75, user_data=(modal_id, True), callback=cancel_callback)
+        dpg.set_item_pos(modal_id, [120, 100])
         return None
 
 def port_selected_callback(sender, app_data, user_data):
     protocol = user_data['protocol']
     radio = protocol.radio
-    baudrate = user_data['baudrate']
-    com_port = user_data['com_port']
+    com_port = dpg.get_value("com_port")
+    baudrate = dpg.get_value("baud_rate")
+    try:
+        com_port = com_port[0:com_port.index(":")]
+    except:
+        with dpg.window(label="Error", modal=True, no_close=True) as modal_id:
+            dpg.add_text("Error occured connecting to COM port!")
+            dpg.add_button(label="Ok", width=75, user_data=(modal_id, True), callback=cancel_callback)
+        dpg.set_item_pos(modal_id, [120, 100])
+        return
+    
     #printd(f"[{com_port}][{baudrate}]")
     
     asyncio.run_coroutine_threadsafe(
         connect_serial_async(protocol, com_port, baudrate),
         loop
     )
+
+def refresh_comports_callback(sender, app_data, user_data):
+    ports = []
+    available_ports = serial.tools.list_ports.comports()
+    for port in available_ports:
+        ports.append(f"{port.device}: {port.description}")
+        printd(f"{port.device} - {port.manufacturer} - {port.description}")
+    dpg.configure_item("com_port", items=ports)
+    dpg.configure_item("com_port", default_value=ports[0] if available_ports else "")
+
+def cancel_callback(sender, app_data, user_data):
+    modal_id = user_data[0]
+    dpg.configure_item(modal_id, show=False)
 
 def button_callback(sender, app_data, user_data):
     label = user_data["label"]
