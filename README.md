@@ -32,6 +32,8 @@
 ### Regular Radio Interface
 ![Screenshot 2025-04-22 214628](https://github.com/user-attachments/assets/a0899888-b840-46c8-9e71-e6cdf84f9e93)
 
+## Python App Demo
+https://github.com/user-attachments/assets/64dbb72e-c534-4081-8b50-a81ffba903bf
 
 ## Disclaimer
 
