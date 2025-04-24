@@ -9,6 +9,8 @@ There was no documentation on the remote radio head protocol so I had to reverse
 - Software
   - [Logic](https://www.saleae.com/pages/downloads) software used with the Logic Analyzer to decode packets to/from radio
   - [SerialTool](https://serialtool.com/_en/index.php) software used to capture, modify and replay packets
+- Issues
+  - You can NOT connect 2 TX pins together (radio head + USB adapter) at the same time since they both will be a normally high state (5v). You will need a TX switch or another type of circuit if you want to control radio from both devices.
 
 ## Required
 ### Software <a href="https://buymeacoffee.com/sleepyninja" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-green.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" align="right"></a>
