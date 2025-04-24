@@ -14,8 +14,9 @@ There was no documentation on the remote radio head protocol so I had to reverse
 ### Software <a href="https://buymeacoffee.com/sleepyninja" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-green.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" align="right"></a>
 - [Python](https://www.python.org/downloads/) (written in v3.13)
 - Python modules:
-  - [pySerial-asyncio](https://pypi.org/project/pyserial-asyncio/) module (pip install pyserial-asyncio)
-  - [DearPyGui](https://pypi.org/project/dearpygui/) module (pip install dearpygui)
+  - Install using (pip install -r requirements.txt)
+  - [pySerial-asyncio](https://pypi.org/project/pyserial-asyncio/) module
+  - [DearPyGui](https://pypi.org/project/dearpygui/) module
 
 ## How to Run
  - Right click "TH9800_CAT.py" file and start with Python.
