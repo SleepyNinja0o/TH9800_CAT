@@ -412,6 +412,7 @@ class SerialPacket:
                     case 0x01:
                         self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.TX, value=True)
                         if self.radio.mic_ptt == True:
+                            print("d")
                             #cmd_pkt = self.create_tx_packet(payload=bytes([0xA0,0xF9,0x01]))
                             #self.protocol.send_packet(cmd_pkt)   #Not sure this CMD is needed just yet
                             #printd(f"TX1 pkt: {cmd_pkt.hex().upper()}")
