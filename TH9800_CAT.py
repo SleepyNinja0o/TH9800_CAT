@@ -129,14 +129,24 @@ class SerialRadio:
         cmd = RADIO_TX_CMD[f"{vfo}_VOLUME"]
         
         self.exe_cmd(cmd=cmd, payload=payload)
-        
+
     def set_squelch(self, vfo: RADIO_VFO, sq: int = 25):
         vfo = str(vfo)
         payload = self.packet.vol_sq_to_packet(value=sq)
         cmd = RADIO_TX_CMD[f"{vfo}_SQUELCH"]
         
         self.exe_cmd(cmd=cmd, payload=payload)
-    
+
+    def set_freq(self, vfo: RADIO_VFO, freq: str):
+        cmd_pkt_all = b''
+        for n in freq:
+            cmd = RADIO_TX_CMD[f"MIC_{n}"]
+            cmd_payload = self.get_cmd_pkt(cmd=cmd)
+            cmd_pkt = self.packet.create_tx_packet(payload=cmd_payload)
+            cmd_pkt_all += cmd_pkt
+        print(cmd_pkt_all.hex().upper())
+        self.protocol.send_packet(cmd_pkt_all)
+
     def exe_cmd(self, cmd: RADIO_TX_CMD, payload: bytes = None):
         cmd_name = cmd.name
         cmd_data = self.get_cmd_pkt(cmd=cmd,payload=payload)
