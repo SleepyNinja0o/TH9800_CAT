@@ -731,6 +731,9 @@ def build_gui(protocol):
             dpg.add_spacer(width=mic_spacer_width)
             for label in ["1", "2", "3", "A"]:
                 dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": label, "protocol": protocol,"vfo": RADIO_VFO.MIC})
+            dpg.add_spacer(width=130)
+            dpg.add_button(label="Set Freq", width=80, callback=button_callback, user_data={"label": "Set Freq", "protocol": protocol,"vfo": RADIO_VFO.MIC})
+            dpg.add_input_text(tag="setfreq_text", decimal=True, no_spaces=True, width=80, default_value="")
         with dpg.group(horizontal=True):
             dpg.add_spacer(width=mic_spacer_width)
             for label in ["4", "5", "6", "B"]:
