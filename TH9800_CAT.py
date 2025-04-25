@@ -33,8 +33,8 @@ class SerialRadio:
         self.startup = False
         
         self.vfo_change = False
-        self.vfo_active = str(RADIO_VFO.LEFT)
-        self.vfo_active_processing = str(RADIO_VFO.LEFT)
+        self.vfo_active = RADIO_VFO.LEFT
+        self.vfo_active_processing = RADIO_VFO.LEFT
         self.vfo_type = {}
         self.vfo_type[RADIO_VFO.LEFT] = RADIO_VFO_TYPE.MEMORY
         self.vfo_type[RADIO_VFO.RIGHT] = RADIO_VFO_TYPE.MEMORY
@@ -321,24 +321,24 @@ class SerialPacket:
                 radio_channel = self.radio.vfo_channel
                 match packet_data[0]:
                     case 0x60:
-                        printd(f"{self.radio.vfo_active_processing}<***Set Freq Fast [{radio_channel}][{radio_text}]***>{self.radio.vfo_active_processing}")
+                        printd(f"{str(self.radio.vfo_active_processing)}<***Set Freq Fast [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
                         radio_text = f"*{radio_text}*"
                         self.radio.vfo_text = radio_text
-                        dpg.set_value(f"ch_{self.radio.vfo_active_processing.lower()}_display",radio_channel)
-                        dpg.set_value(f"vfo_{self.radio.vfo_active_processing.lower()}_display",radio_text)
+                        dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",radio_channel)
+                        dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
                     case (0x40|0xC0):
                         if self.radio.vfo_change == True:
                             return
                         elif self.radio.menu_open == True and self.radio.vfo_active_processing == self.radio.vfo_active and self.radio.connect_process == False:
-                            printd(f"{self.radio.vfo_active_processing}<***Set Menu [{radio_channel}][{radio_text}]***>{self.radio.vfo_active_processing}")
+                            printd(f"{str(self.radio.vfo_active_processing)}<***Set Menu [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
                         elif self.radio.connect_process == False:
                             if radio_channel.find("HP") != -1:
-                                printd(f"{self.radio.vfo_active_processing}<***Radio Power [{radio_channel}][{radio_text}]***>{self.radio.vfo_active_processing}")
+                                printd(f"{str(self.radio.vfo_active_processing)}<***Radio Power [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
                             else:
-                                printd(f"{self.radio.vfo_active_processing}<***Set Channel [{radio_channel}][{radio_text}]***>{self.radio.vfo_active_processing}")
+                                printd(f"{str(self.radio.vfo_active_processing)}<***Set Channel [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
                         if self.radio.dpg_enabled == True:
-                            dpg.set_value(f"ch_{self.radio.vfo_active_processing.lower()}_display",radio_channel)
-                            dpg.set_value(f"vfo_{self.radio.vfo_active_processing.lower()}_display",radio_text)
+                            dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",radio_channel)
+                            dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
             case RADIO_RX_CMD.CHANNEL_TEXT.value:
                 if self.radio.vfo_change == True:
                     return
@@ -348,19 +348,19 @@ class SerialPacket:
                     case 0x40 | 0x60:
                         self.radio.vfo_type[RADIO_VFO.LEFT] = RADIO_VFO_TYPE.MEMORY
                         if packet_data[0] == 0x60:
-                            dpg.set_value(f"ch_{self.radio.vfo_active_processing.lower()}_display",self.radio.vfo_channel)
+                            dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",self.radio.vfo_channel)
                     case 0xC0 | 0xE0:
                         self.radio.vfo_type[RADIO_VFO.RIGHT] = RADIO_VFO_TYPE.MEMORY
             case RADIO_RX_CMD.DISPLAY_CHANGE.value:
                 match packet_data[0]:
                     case 0x43:
                         #printd("L<",end="")
-                        self.radio.vfo_active_processing = str(RADIO_VFO.LEFT)
+                        self.radio.vfo_active_processing = RADIO_VFO.LEFT
                         self.radio.vfo_channel = ""
                         #printd("VFO act pro: ",str(RADIO_VFO.LEFT))
                     case 0xC3:
                         #printd("R<",end="")
-                        self.radio.vfo_active_processing = str(RADIO_VFO.RIGHT)
+                        self.radio.vfo_active_processing = RADIO_VFO.RIGHT
                         self.radio.vfo_channel = ""
                         #printd("VFO act pro: ",str(RADIO_VFO.RIGHT))
                     case 0x03:
@@ -378,26 +378,26 @@ class SerialPacket:
                 match packet_data[0]:
                     case 0x00:
                         if self.radio.menu_open == True:
-                            printd(f"{self.radio.vfo_active}<***Menu Closed***>{self.radio.vfo_active}")
+                            printd(f"{str(self.radio.vfo_active)}<***Menu Closed***>{str(self.radio.vfo_active)}")
                             self.radio.menu_open = False
                             self.radio.set_icon(vfo=RADIO_VFO.NONE, icon=RADIO_RX_ICON.SET, value=False)
                     case 0x01:
-                        printd(f"{self.radio.vfo_active}<***Menu Opened***>{self.radio.vfo_active}")
+                        printd(f"{str(self.radio.vfo_active)}<***Menu Opened***>{str(self.radio.vfo_active)}")
                         self.radio.menu_open = True
                         self.radio.set_icon(vfo=RADIO_VFO.NONE, icon=RADIO_RX_ICON.SET, value=True)
                         
             case RADIO_RX_CMD.ICON_MAIN.value:
                 match packet_data[0]:
                     case 0x01:
-                        self.radio.vfo_active = str(RADIO_VFO.LEFT)
+                        self.radio.vfo_active = RADIO_VFO.LEFT
                         self.radio.vfo_change = True
-                        printd(f"{self.radio.vfo_active}<***Left  VFO Activated***>{self.radio.vfo_active}")
+                        printd(f"{str(self.radio.vfo_active)}<***Left  VFO Activated***>{str(self.radio.vfo_active)}")
                         self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.MAIN, value=False)
                         self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.MAIN, value=True)
                     case 0x81:
-                        self.radio.vfo_active = str(RADIO_VFO.RIGHT)
+                        self.radio.vfo_active = RADIO_VFO.RIGHT
                         self.radio.vfo_change = True
-                        printd(f"{self.radio.vfo_active}<***Right VFO Activated***>{self.radio.vfo_active}")
+                        printd(f"{str(self.radio.vfo_active)}<***Right VFO Activated***>{str(self.radio.vfo_active)}")
                         self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.MAIN, value=True)
                         self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.MAIN, value=False)
             case RADIO_RX_CMD.ICON_TX.value:
@@ -450,17 +450,17 @@ class SerialPacket:
                     radio_text_formatted = f"*{radio_text_formatted}*"
                 match packet_data[0]:
                     case 0x40:
-                        self.radio.vfo_active_processing = str(RADIO_VFO.LEFT)
-                        dpg.set_value(f"vfo_{self.radio.vfo_active_processing.lower()}_display",radio_text)
+                        self.radio.vfo_active_processing = RADIO_VFO.LEFT
+                        dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
                     case 0x41:
-                        self.radio.vfo_active_processing = str(RADIO_VFO.LEFT)
-                        dpg.set_value(f"vfo_{self.radio.vfo_active_processing.lower()}_display",radio_text_formatted)
+                        self.radio.vfo_active_processing = RADIO_VFO.LEFT
+                        dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text_formatted)
                     case 0xC0:
-                        self.radio.vfo_active_processing = str(RADIO_VFO.RIGHT)
-                        dpg.set_value(f"vfo_{self.radio.vfo_active_processing.lower()}_display",radio_text)
+                        self.radio.vfo_active_processing = RADIO_VFO.RIGHT
+                        dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
                     case 0xC1:
-                        self.radio.vfo_active_processing = str(RADIO_VFO.RIGHT)
-                        dpg.set_value(f"vfo_{self.radio.vfo_active_processing.lower()}_display",radio_text_formatted)
+                        self.radio.vfo_active_processing = RADIO_VFO.RIGHT
+                        dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text_formatted)
             case RADIO_RX_CMD.STARTUP_1.value:
                 match packet_data[0]:
                     case 0x00:
@@ -491,10 +491,10 @@ class SerialPacket:
         match packet[0]:
             case 0x40:
                 vfo = RADIO_VFO.LEFT
-                self.radio.vfo_active_processing = str(vfo)
+                self.radio.vfo_active_processing = vfo
             case 0xC0:
                 vfo = RADIO_VFO.RIGHT
-                self.radio.vfo_active_processing = str(vfo)
+                self.radio.vfo_active_processing = vfo
             case _:
                 printd(f"Unknown icon display packet: {packet[0]}")
         match packet[1]:
@@ -782,7 +782,7 @@ def build_gui(protocol):
         dpg.add_spacer(height=15)
         
         with dpg.group(horizontal=True):
-            # dpg.set_value(f"vfo_{self.radio.vfo_active_processing.lower()}_display",radio_text)
+            # dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
             com_port = ""
             baudrate = ""
             com_port = dpg.get_value("com_port")
