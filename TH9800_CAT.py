@@ -5,6 +5,7 @@ import serial.tools.list_ports
 import serial_asyncio
 import asyncio
 import threading
+import re
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
@@ -40,6 +41,7 @@ class SerialRadio:
         self.vfo_text = ""
         self.vfo_channel = ""
         self.mic_ptt = False
+        self.mic_ptt_disabled = False
 
         self.icons = {}
         self.icons[RADIO_VFO.NONE] = {}
@@ -90,7 +92,7 @@ class SerialRadio:
         try:
             dpg.bind_item_theme(tag, text_theme)
         except Exception as e:
-            print(f"****************Error occurred: {e}****************")
+            printd(f"****************Error occurred: {e}****************")
             
 
     def set_icon(self, vfo: RADIO_VFO, icon: RADIO_RX_ICON, value):
@@ -138,14 +140,35 @@ class SerialRadio:
     def exe_cmd(self, cmd: RADIO_TX_CMD, payload: bytes = None):
         cmd_name = cmd.name
         cmd_data = self.get_cmd_pkt(cmd=cmd,payload=payload)
+        
+        #If MIC PTT(TX) and UP/DOWN/P btn is pressed, ignore it
+        if self.mic_ptt == True and re.match(r"MIC_(UP|DOWN|P\d+)",cmd_name):
+            printd("Ignoring keypress...")
+            return
+        elif self.mic_ptt == True and (cmd_name.find("MIC") != -1 or cmd_name.find("HM") != -1):
+            cmd_data[1] = 0x00 #5th byte changes to 0x00 if MIC button pressed while MIC PTT (TX) is active
+
         cmd_pkt = self.packet.create_tx_packet(payload=cmd_data)
         
         #If above was a button/key press, we need to release button/return control to body
         if cmd_name.find("LEFT") == -1 and cmd_name.find("RIGHT") == -1 and cmd_name != "L_VOLUME" and cmd_name != "L_SQUELCH" and cmd_name != "R_VOLUME" and cmd_name != "R_SQUELCH":
-            if cmd_name == "MIC_PTT" and self.mic_ptt == False:
-                self.mic_ptt = True
+            if cmd_name == "MIC_PTT" and self.mic_ptt == True:
+                printd("***MIC PTT***")
+            elif cmd_name == "MIC_PTT" and self.mic_ptt == False:
+                #Only send DEFAULT/release CMD if MIC PTT btn is pressed again after active MIC PTT
+                cmd_data = self.get_cmd_pkt(cmd=RADIO_TX_CMD.DEFAULT)
+                cmd_pkt = self.packet.create_tx_packet(payload=cmd_data)
+                self.mic_ptt_disabled = True
+            elif (cmd_name.find("MIC") != -1 or cmd_name.find("HM") != -1) and self.mic_ptt == True:
+                self.protocol.send_packet(cmd_pkt)
+                sleep(.25)
+                
+                #MIC PTT cmd is replayed after a MIC button is pressed during active MIC PTT (TX)
+                printd(f"MIC pkt: {cmd_pkt.hex().upper()}")
+                cmd_data = self.get_cmd_pkt(cmd=RADIO_TX_CMD.MIC_PTT)
+                cmd_pkt = self.packet.create_tx_packet(payload=cmd_data)
+                printd(f"PTT replay: {cmd_pkt.hex().upper()}")
             else:
-                self.mic_ptt = False
                 cmd_data2 = self.get_cmd_pkt(cmd=RADIO_TX_CMD.DEFAULT)
                 cmd_pkt2 = self.packet.create_tx_packet(payload=cmd_data2)
                 cmd_pkt += cmd_pkt2
@@ -244,7 +267,7 @@ class SerialPacket:
         checksum = self.calculate_checksum(packet[2:])
         packet += bytes([checksum])
         self.packet = packet
-        return packet
+        return bytearray(packet)
 
     def format_frequency(self, freq_str):
         freq_str = str(freq_str)  # ensure it's a string
@@ -322,13 +345,11 @@ class SerialPacket:
                 match packet_data[0]:
                     case 0x43:
                         #printd("L<",end="")
-                        t=""
                         self.radio.vfo_active_processing = str(RADIO_VFO.LEFT)
                         self.radio.vfo_channel = ""
                         #printd("VFO act pro: ",str(RADIO_VFO.LEFT))
                     case 0xC3:
                         #printd("R<",end="")
-                        t=""
                         self.radio.vfo_active_processing = str(RADIO_VFO.RIGHT)
                         self.radio.vfo_channel = ""
                         #printd("VFO act pro: ",str(RADIO_VFO.RIGHT))
@@ -373,8 +394,17 @@ class SerialPacket:
                 match packet_data[0]:
                     case 0x00:
                         self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.TX, value=False)
+                        if self.radio.mic_ptt_disabled == True:
+                            self.radio.mic_ptt_disabled = False
+                            #cmd_pkt = self.create_tx_packet(payload=bytes([0xA0,0x09,0x02]))
+                            #self.protocol.send_packet(cmd_pkt)   #Not sure this CMD is needed just yet
+                            #printd(f"TX0 pkt: {cmd_pkt.hex().upper()}")
                     case 0x01:
                         self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.TX, value=True)
+                        if self.radio.mic_ptt == True:
+                            #cmd_pkt = self.create_tx_packet(payload=bytes([0xA0,0xF9,0x01]))
+                            #self.protocol.send_packet(cmd_pkt)   #Not sure this CMD is needed just yet
+                            #printd(f"TX1 pkt: {cmd_pkt.hex().upper()}")
                     case 0x80:
                         self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.TX, value=False)
                     case 0x81:
@@ -783,7 +813,7 @@ async def connect_serial_async(protocol, com_port, baudrate):
         
         return transport
     except Exception as e:
-        print(f"Connection failed: {e}")
+        printd(f"Connection failed: {e}")
         with dpg.window(label="Error", modal=True, no_close=True) as modal_id:
             dpg.add_text(e, wrap=300)
             dpg.add_button(label="Ok", width=75, user_data=(modal_id, True), callback=cancel_callback)
@@ -836,6 +866,11 @@ def button_callback(sender, app_data, user_data):
     match label.upper():
         case "VM":
             radio.switch_vfo_type(vfo=user_data["vfo"])
+        case "PTT":
+            if radio.mic_ptt == False:
+                radio.mic_ptt = True
+            else:
+                radio.mic_ptt = False
         case "*":
             label = "STAR"
         case "#":
