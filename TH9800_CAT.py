@@ -565,7 +565,7 @@ def build_gui(protocol):
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_Text, (37, 37, 38, 255)) #(255, 0, 0, 255) (37, 37, 38, 255)
 
-    with dpg.window(tag="radio_window", label="Radio Front Panel", width=580, height=530, pos=[0,20], no_move=True, user_data={"protocol": protocol}):
+    with dpg.window(tag="radio_window", show=False, label="Radio Front Panel", width=580, height=530, pos=[0,20], no_move=True, user_data={"protocol": protocol}):
         # === Hyper Mem Buttons A-F ===
         with dpg.group(horizontal=True):
             dpg.add_text("Hyper Memories: ", indent=45)
@@ -818,6 +818,7 @@ async def connect_serial_async(protocol, com_port, baudrate):
         )
         await protocol.ready.wait()
         printd(f"Connected to {com_port} at {baudrate} baud.")
+        dpg.configure_item("radio_window", show=True)
         dpg.configure_item("connection_window", collapsed=True)
         asyncio.create_task(read_loop(protocol))
         
@@ -984,7 +985,7 @@ async def main():
     if radio.dpg_enabled == True:
         dpg.create_context()
         build_gui(protocol)
-        dpg.create_viewport(title="TYT TH9800 CAT Control", width=575, height=580)
+        dpg.create_viewport(title="TYT TH9800 CAT Control", width=575, height=580, resizable=False)
         dpg.setup_dearpygui()
         dpg.show_viewport()
 
