@@ -138,14 +138,17 @@ class SerialRadio:
         self.exe_cmd(cmd=cmd, payload=payload)
 
     def set_freq(self, vfo: RADIO_VFO, freq: str):
-        cmd_pkt_all = b''
         for n in freq:
+            cmd_pkt_all = b''
             cmd = RADIO_TX_CMD[f"MIC_{n}"]
             cmd_payload = self.get_cmd_pkt(cmd=cmd)
             cmd_pkt = self.packet.create_tx_packet(payload=cmd_payload)
             cmd_pkt_all += cmd_pkt
-        print(cmd_pkt_all.hex().upper())
-        self.protocol.send_packet(cmd_pkt_all)
+            cmd_data2 = self.get_cmd_pkt(cmd=RADIO_TX_CMD.DEFAULT)
+            cmd_pkt2 = self.packet.create_tx_packet(payload=cmd_data2)
+            cmd_pkt_all += cmd_pkt2
+            self.protocol.send_packet(cmd_pkt_all)
+            sleep(.15)
 
     def exe_cmd(self, cmd: RADIO_TX_CMD, payload: bytes = None):
         cmd_name = cmd.name
@@ -156,6 +159,7 @@ class SerialRadio:
             printd("Ignoring keypress...")
             return
         elif self.mic_ptt == True and (cmd_name.find("MIC") != -1 or cmd_name.find("HM") != -1):
+            printd("*****mic_ptt=True, setting 0x00 on MIC btn*****")
             cmd_data[1] = 0x00 #5th byte changes to 0x00 if MIC button pressed while MIC PTT (TX) is active
 
         cmd_pkt = self.packet.create_tx_packet(payload=cmd_data)
@@ -177,7 +181,7 @@ class SerialRadio:
                 printd(f"MIC pkt: {cmd_pkt.hex().upper()}")
                 cmd_data = self.get_cmd_pkt(cmd=RADIO_TX_CMD.MIC_PTT)
                 cmd_pkt = self.packet.create_tx_packet(payload=cmd_data)
-                printd(f"PTT replay: {cmd_pkt.hex().upper()}")
+                printd(f"*****PTT replay: {cmd_pkt.hex().upper()}*****")
             else:
                 cmd_data2 = self.get_cmd_pkt(cmd=RADIO_TX_CMD.DEFAULT)
                 cmd_pkt2 = self.packet.create_tx_packet(payload=cmd_data2)
@@ -561,7 +565,7 @@ def build_gui(protocol):
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_Text, (37, 37, 38, 255)) #(255, 0, 0, 255) (37, 37, 38, 255)
 
-    with dpg.window(label="Radio Front Panel", width=580, height=530, pos=[0,20], no_move=True, user_data={"protocol": protocol}):
+    with dpg.window(tag="radio_window", label="Radio Front Panel", width=580, height=530, pos=[0,20], no_move=True, user_data={"protocol": protocol}):
         # === Hyper Mem Buttons A-F ===
         with dpg.group(horizontal=True):
             dpg.add_text("Hyper Memories: ", indent=45)
@@ -878,6 +882,18 @@ def button_callback(sender, app_data, user_data):
     radio = protocol.radio
 
     match label.upper():
+        case "SET FREQ":
+            freq = dpg.get_value("setfreq_text").replace(".","").replace("*","").replace("+","").replace("-","").replace("/","")
+            if len(freq) < 6:
+                freq = f"0{freq}"
+            if len(freq) > 6:
+                freq = freq[0:6]
+                dpg.set_value("setfreq_text",freq)
+            if len(freq) < 6:
+                return
+            printd(f"Set Freq: {freq}")
+            radio.set_freq(vfo=radio.vfo_active,freq=freq)
+            return
         case "VM":
             radio.switch_vfo_type(vfo=user_data["vfo"])
         case "PTT":
