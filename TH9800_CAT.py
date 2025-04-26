@@ -197,6 +197,9 @@ class SerialProtocol(asyncio.Protocol):
         self.buffer = bytearray()
         self.radio = radio
 
+    def reset_ready(self):
+        self.ready = asyncio.Event()  # Binds to current event loop
+
     def connection_made(self, transport):
         self.transport = transport
         printd("Connection opened")
@@ -243,7 +246,7 @@ class SerialProtocol(asyncio.Protocol):
                 # Optionally: log, raise alert, or resync buffer here
 
     def connection_lost(self, exc):
-        printd("Connection lost")
+        print("Connection lost")
         asyncio.get_event_loop().stop()
         self.transport.close()
 
@@ -252,7 +255,7 @@ class SerialProtocol(asyncio.Protocol):
             printd(f"Sending: {data.hex().upper()}")
             self.transport.write(data)
         else:
-            printd("Transport is not available or already closed.")
+            print("Transport is not available or already closed.")
 
 class SerialPacket:
     def __init__(self, protocol: SerialProtocol=None):
@@ -792,7 +795,7 @@ def build_gui(protocol):
             com_port = dpg.get_value("com_port")
             baudrate = dpg.get_value("baud_rate")
 
-            dpg.add_button(label="Connect", indent=5, width=100, callback=port_selected_callback, user_data={"com_port": com_port, "baudrate": baudrate,"protocol": protocol})
+            dpg.add_button(label="Connect", tag="connect_button", indent=5, width=100, callback=port_selected_callback, user_data={"com_port": com_port, "baudrate": baudrate, "protocol": protocol})
 
         if len(available_ports) == 0:
             with dpg.window(label="Error", modal=True, no_close=True) as modal_id:
@@ -812,6 +815,7 @@ def update_signal(vfo: RADIO_VFO, s_value: int):
 async def connect_serial_async(protocol, com_port, baudrate):
     radio = protocol.radio
     packet = SerialPacket()
+
     try:
         transport, _ = await serial_asyncio.create_serial_connection(
             asyncio.get_event_loop(), lambda: protocol, com_port, baudrate=baudrate
@@ -820,6 +824,7 @@ async def connect_serial_async(protocol, com_port, baudrate):
         printd(f"Connected to {com_port} at {baudrate} baud.")
         dpg.configure_item("radio_window", show=True)
         dpg.configure_item("connection_window", collapsed=True)
+        dpg.configure_item("connect_button", label="Disconnect")
         asyncio.create_task(read_loop(protocol))
         
         radio.connect_process = True
@@ -840,10 +845,19 @@ async def connect_serial_async(protocol, com_port, baudrate):
         return None
 
 def port_selected_callback(sender, app_data, user_data):
+    label = dpg.get_item_label("connect_button")
+    
     protocol = user_data['protocol']
     radio = protocol.radio
     com_port = dpg.get_value("com_port")
     baudrate = dpg.get_value("baud_rate")
+    
+    if label == "Disconnect":
+        protocol.transport.close()
+        print(f"{com_port} disconnected.\n")
+        dpg.configure_item("connect_button", label="Connect")
+        return
+
     try:
         com_port = com_port[0:com_port.index(":")]
     except:
@@ -853,7 +867,9 @@ def port_selected_callback(sender, app_data, user_data):
         dpg.set_item_pos(modal_id, [120, 100])
         return
     
-    #printd(f"[{com_port}][{baudrate}]")
+    if not loop.is_running():
+        threading.Thread(target=start_event_loop, daemon=True).start()
+        protocol.reset_ready()
     
     asyncio.run_coroutine_threadsafe(
         connect_serial_async(protocol, com_port, baudrate),
@@ -934,7 +950,6 @@ def vol_callback(sender, app_data, user_data):
     radio = protocol.radio
     
     radio.set_volume(vfo=vfo,vol=app_data)
-
 
 async def read_loop(protocol: SerialProtocol):
     while True:
