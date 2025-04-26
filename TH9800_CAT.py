@@ -550,6 +550,171 @@ class SerialPacket:
     def __repr__(self):
         return f"SerialPacket(start={self.start_bytes.hex().upper()}, payload={self.payload.hex().upper()}, checksum={self.checksum:02X})"
 
+def update_signal(vfo: RADIO_VFO, s_value: int):
+    vfo = vfo.value.lower()
+    if s_value == 0:
+        percent = 0
+    else:
+        percent = (s_value - 1) / 8  # Map S1–S9 to 0.0–1.0 range
+    dpg.set_value(f"icon_{vfo}_signal", percent)
+    dpg.configure_item(f"icon_{vfo}_signal",overlay=f"S{s_value}")
+
+def refresh_comports_callback(sender, app_data, user_data):
+    ports = []
+    available_ports = serial.tools.list_ports.comports()
+    for port in available_ports:
+        ports.append(f"{port.device}: {port.description}")
+        printd(f"{port.device} - {port.manufacturer} - {port.description}")
+    dpg.configure_item("com_port", items=ports)
+    dpg.configure_item("com_port", default_value=ports[0] if available_ports else "")
+
+def cancel_callback(sender, app_data, user_data):
+    modal_id = user_data[0]
+    dpg.configure_item(modal_id, show=False)
+
+def button_callback(sender, app_data, user_data):
+    label = user_data["label"]
+    if user_data["vfo"] == RADIO_VFO.LEFT or user_data["vfo"] == RADIO_VFO.RIGHT or user_data["vfo"] == RADIO_VFO.MIC:
+        vfo = user_data["vfo"].value
+    else:
+        vfo = user_data["vfo"]
+    protocol = user_data["protocol"]
+    radio = protocol.radio
+
+    match label.upper():
+        case "SET FREQ":
+            if radio.vfo_type[radio.vfo_active] == RADIO_VFO_TYPE.MEMORY:
+                return
+            freq = dpg.get_value("setfreq_text").replace(".","").replace("*","").replace("+","").replace("-","").replace("/","")
+            if len(freq) < 6:
+                freq = f"0{freq}"
+            if len(freq) > 6:
+                freq = freq[0:6]
+                dpg.set_value("setfreq_text",freq)
+            if len(freq) < 6:
+                return
+            printd(f"Set Freq: {freq}")
+            radio.set_freq(vfo=radio.vfo_active,freq=freq)
+            return
+        case "VM":
+            radio.switch_vfo_type(vfo=user_data["vfo"])
+        case "PTT":
+            if radio.mic_ptt == False:
+                radio.mic_ptt = True
+            else:
+                radio.mic_ptt = False
+        case "*":
+            label = "STAR"
+        case "#":
+            label = "POUND"
+            
+
+    if vfo == RADIO_VFO.LEFT.value or vfo == RADIO_VFO.RIGHT.value or vfo == RADIO_VFO.MIC.value:
+        radio.exe_cmd(cmd=RADIO_TX_CMD[f"{vfo}_{label}"])
+    else:
+        match label:
+            case "MENU":
+                radio.exe_cmd(cmd=RADIO_TX_CMD[label])
+            case "HA"|"HB"|"HC"|"HD"|"HE"|"HF":
+                radio.exe_cmd(cmd=RADIO_TX_CMD[f"HYPER_{label.replace("H","")}"])
+
+    printd(f"Sent {label} button command for {vfo} VFO.") #: {packet.hex().upper()}")
+
+def sq_callback(sender, app_data, user_data):
+    label = user_data["label"].replace("/","")
+    vfo = user_data["vfo"].value
+    protocol = user_data["protocol"]
+    radio = protocol.radio
+    
+    radio.set_squelch(vfo=vfo,sq=app_data)
+
+def vol_callback(sender, app_data, user_data):
+    label = user_data["label"].replace("/","")
+    vfo = user_data["vfo"].value
+    protocol = user_data["protocol"]
+    radio = protocol.radio
+    
+    radio.set_volume(vfo=vfo,vol=app_data)
+
+async def connect_serial_async(protocol, com_port, baudrate):
+    radio = protocol.radio
+    packet = SerialPacket()
+
+    try:
+        transport, _ = await serial_asyncio.create_serial_connection(
+            asyncio.get_event_loop(), lambda: protocol, com_port, baudrate=baudrate
+        )
+        await protocol.ready.wait()
+        printd(f"Connected to {com_port} at {baudrate} baud.")
+        dpg.configure_item("radio_window", show=True)
+        dpg.configure_item("connection_window", collapsed=True)
+        dpg.configure_item("connect_button", label="Disconnect")
+        asyncio.create_task(read_loop(protocol))
+        
+        radio.connect_process = True
+
+        radio.exe_cmd(cmd=RADIO_TX_CMD.STARTUP)
+        await asyncio.sleep(0.5)
+        radio.exe_cmd(cmd=RADIO_TX_CMD.L_VOLUME_SQUELCH)
+        await asyncio.sleep(0.5)
+        radio.exe_cmd(cmd=RADIO_TX_CMD.R_VOLUME_SQUELCH)
+        
+        return transport
+    except Exception as e:
+        printd(f"Connection failed: {e}")
+        with dpg.window(label="Error", modal=True, no_close=True) as modal_id:
+            dpg.add_text(e, wrap=300)
+            dpg.add_button(label="Ok", width=75, user_data=(modal_id, True), callback=cancel_callback)
+        dpg.set_item_pos(modal_id, [120, 100])
+        return None
+
+def port_selected_callback(sender, app_data, user_data):
+    label = dpg.get_item_label("connect_button")
+    
+    protocol = user_data['protocol']
+    radio = protocol.radio
+    com_port = dpg.get_value("com_port")
+    baudrate = dpg.get_value("baud_rate")
+    
+    if label == "Disconnect":
+        protocol.transport.close()
+        print(f"{com_port} disconnected.\n")
+        dpg.configure_item("connect_button", label="Connect")
+        return
+
+    try:
+        com_port = com_port[0:com_port.index(":")]
+    except:
+        with dpg.window(label="Error", modal=True, no_close=True) as modal_id:
+            dpg.add_text("Error occured connecting to COM port!")
+            dpg.add_button(label="Ok", width=75, user_data=(modal_id, True), callback=cancel_callback)
+        dpg.set_item_pos(modal_id, [120, 100])
+        return
+    
+    if not loop.is_running():
+        threading.Thread(target=start_event_loop, daemon=True).start()
+        protocol.reset_ready()
+    
+    asyncio.run_coroutine_threadsafe(
+        connect_serial_async(protocol, com_port, baudrate),
+        loop
+    )
+
+async def run_dpg():
+    while dpg.is_dearpygui_running():
+        dpg.render_dearpygui_frame()
+        await asyncio.sleep(1/60)
+
+async def read_loop(protocol: SerialProtocol):
+    while True:
+        packet = await protocol.receive_queue.get()
+        packet_processor = SerialPacket(protocol=protocol).process_rx_packet(packet=packet)
+        """
+        #printd("Processed from queue:", packet.decode('utf-8', errors='ignore'))
+        #printd("Byte Array:", packet.hex().upper())
+        #printd("CMD:(",bytes([packet_cmd]).hex().upper(),") Data:(",packet_data.hex().upper(),")")
+        """
+
 def build_gui(protocol):
     ports = []
     available_ports = serial.tools.list_ports.comports()
@@ -795,171 +960,6 @@ def build_gui(protocol):
                 dpg.add_text("No COM ports available for connection!")
                 dpg.add_button(label="Ok", width=75, user_data=(modal_id, True), callback=cancel_callback)
             dpg.set_item_pos(modal_id, [120, 100])
-
-def update_signal(vfo: RADIO_VFO, s_value: int):
-    vfo = vfo.value.lower()
-    if s_value == 0:
-        percent = 0
-    else:
-        percent = (s_value - 1) / 8  # Map S1–S9 to 0.0–1.0 range
-    dpg.set_value(f"icon_{vfo}_signal", percent)
-    dpg.configure_item(f"icon_{vfo}_signal",overlay=f"S{s_value}")
-
-def refresh_comports_callback(sender, app_data, user_data):
-    ports = []
-    available_ports = serial.tools.list_ports.comports()
-    for port in available_ports:
-        ports.append(f"{port.device}: {port.description}")
-        printd(f"{port.device} - {port.manufacturer} - {port.description}")
-    dpg.configure_item("com_port", items=ports)
-    dpg.configure_item("com_port", default_value=ports[0] if available_ports else "")
-
-def cancel_callback(sender, app_data, user_data):
-    modal_id = user_data[0]
-    dpg.configure_item(modal_id, show=False)
-
-def button_callback(sender, app_data, user_data):
-    label = user_data["label"]
-    if user_data["vfo"] == RADIO_VFO.LEFT or user_data["vfo"] == RADIO_VFO.RIGHT or user_data["vfo"] == RADIO_VFO.MIC:
-        vfo = user_data["vfo"].value
-    else:
-        vfo = user_data["vfo"]
-    protocol = user_data["protocol"]
-    radio = protocol.radio
-
-    match label.upper():
-        case "SET FREQ":
-            if radio.vfo_type[radio.vfo_active] == RADIO_VFO_TYPE.MEMORY:
-                return
-            freq = dpg.get_value("setfreq_text").replace(".","").replace("*","").replace("+","").replace("-","").replace("/","")
-            if len(freq) < 6:
-                freq = f"0{freq}"
-            if len(freq) > 6:
-                freq = freq[0:6]
-                dpg.set_value("setfreq_text",freq)
-            if len(freq) < 6:
-                return
-            printd(f"Set Freq: {freq}")
-            radio.set_freq(vfo=radio.vfo_active,freq=freq)
-            return
-        case "VM":
-            radio.switch_vfo_type(vfo=user_data["vfo"])
-        case "PTT":
-            if radio.mic_ptt == False:
-                radio.mic_ptt = True
-            else:
-                radio.mic_ptt = False
-        case "*":
-            label = "STAR"
-        case "#":
-            label = "POUND"
-            
-
-    if vfo == RADIO_VFO.LEFT.value or vfo == RADIO_VFO.RIGHT.value or vfo == RADIO_VFO.MIC.value:
-        radio.exe_cmd(cmd=RADIO_TX_CMD[f"{vfo}_{label}"])
-    else:
-        match label:
-            case "MENU":
-                radio.exe_cmd(cmd=RADIO_TX_CMD[label])
-            case "HA"|"HB"|"HC"|"HD"|"HE"|"HF":
-                radio.exe_cmd(cmd=RADIO_TX_CMD[f"HYPER_{label.replace("H","")}"])
-
-    printd(f"Sent {label} button command for {vfo} VFO.") #: {packet.hex().upper()}")
-
-def sq_callback(sender, app_data, user_data):
-    label = user_data["label"].replace("/","")
-    vfo = user_data["vfo"].value
-    protocol = user_data["protocol"]
-    radio = protocol.radio
-    
-    radio.set_squelch(vfo=vfo,sq=app_data)
-
-def vol_callback(sender, app_data, user_data):
-    label = user_data["label"].replace("/","")
-    vfo = user_data["vfo"].value
-    protocol = user_data["protocol"]
-    radio = protocol.radio
-    
-    radio.set_volume(vfo=vfo,vol=app_data)
-
-async def connect_serial_async(protocol, com_port, baudrate):
-    radio = protocol.radio
-    packet = SerialPacket()
-
-    try:
-        transport, _ = await serial_asyncio.create_serial_connection(
-            asyncio.get_event_loop(), lambda: protocol, com_port, baudrate=baudrate
-        )
-        await protocol.ready.wait()
-        printd(f"Connected to {com_port} at {baudrate} baud.")
-        dpg.configure_item("radio_window", show=True)
-        dpg.configure_item("connection_window", collapsed=True)
-        dpg.configure_item("connect_button", label="Disconnect")
-        asyncio.create_task(read_loop(protocol))
-        
-        radio.connect_process = True
-
-        radio.exe_cmd(cmd=RADIO_TX_CMD.STARTUP)
-        await asyncio.sleep(0.5)
-        radio.exe_cmd(cmd=RADIO_TX_CMD.L_VOLUME_SQUELCH)
-        await asyncio.sleep(0.5)
-        radio.exe_cmd(cmd=RADIO_TX_CMD.R_VOLUME_SQUELCH)
-        
-        return transport
-    except Exception as e:
-        printd(f"Connection failed: {e}")
-        with dpg.window(label="Error", modal=True, no_close=True) as modal_id:
-            dpg.add_text(e, wrap=300)
-            dpg.add_button(label="Ok", width=75, user_data=(modal_id, True), callback=cancel_callback)
-        dpg.set_item_pos(modal_id, [120, 100])
-        return None
-
-def port_selected_callback(sender, app_data, user_data):
-    label = dpg.get_item_label("connect_button")
-    
-    protocol = user_data['protocol']
-    radio = protocol.radio
-    com_port = dpg.get_value("com_port")
-    baudrate = dpg.get_value("baud_rate")
-    
-    if label == "Disconnect":
-        protocol.transport.close()
-        print(f"{com_port} disconnected.\n")
-        dpg.configure_item("connect_button", label="Connect")
-        return
-
-    try:
-        com_port = com_port[0:com_port.index(":")]
-    except:
-        with dpg.window(label="Error", modal=True, no_close=True) as modal_id:
-            dpg.add_text("Error occured connecting to COM port!")
-            dpg.add_button(label="Ok", width=75, user_data=(modal_id, True), callback=cancel_callback)
-        dpg.set_item_pos(modal_id, [120, 100])
-        return
-    
-    if not loop.is_running():
-        threading.Thread(target=start_event_loop, daemon=True).start()
-        protocol.reset_ready()
-    
-    asyncio.run_coroutine_threadsafe(
-        connect_serial_async(protocol, com_port, baudrate),
-        loop
-    )
-
-async def run_dpg():
-    while dpg.is_dearpygui_running():
-        dpg.render_dearpygui_frame()
-        await asyncio.sleep(1/60)
-
-async def read_loop(protocol: SerialProtocol):
-    while True:
-        packet = await protocol.receive_queue.get()
-        packet_processor = SerialPacket(protocol=protocol).process_rx_packet(packet=packet)
-        """
-        #printd("Processed from queue:", packet.decode('utf-8', errors='ignore'))
-        #printd("Byte Array:", packet.hex().upper())
-        #printd("CMD:(",bytes([packet_cmd]).hex().upper(),") Data:(",packet_data.hex().upper(),")")
-        """
 
 async def main():
     radio = SerialRadio(dpg)
