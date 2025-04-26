@@ -364,15 +364,11 @@ class SerialPacket:
             case RADIO_RX_CMD.DISPLAY_CHANGE.value:
                 match packet_data[0]:
                     case 0x43:
-                        #printd("L<",end="")
                         self.radio.vfo_active_processing = RADIO_VFO.LEFT
                         self.radio.vfo_channel = ""
-                        #printd("VFO act pro: ",str(RADIO_VFO.LEFT))
                     case 0xC3:
-                        #printd("R<",end="")
                         self.radio.vfo_active_processing = RADIO_VFO.RIGHT
                         self.radio.vfo_channel = ""
-                        #printd("VFO act pro: ",str(RADIO_VFO.RIGHT))
                     case 0x03:
                         self.radio.vfo_change = False
                         printd("vfo_change: False")
@@ -383,7 +379,6 @@ class SerialPacket:
                             self.radio.connect_process = False
             case RADIO_RX_CMD.DISPLAY_ICONS.value:
                 self.process_display_packet(packet=packet_data)
-                #printd("D")
             case RADIO_RX_CMD.ICON_SET.value:
                 match packet_data[0]:
                     case 0x00:
