@@ -447,14 +447,12 @@ class SerialPacket:
             case RADIO_RX_CMD.ICON_DOT_1ST.value:
                 radio_text_fast = False
                 radio_text = self.radio.vfo_text
-                print(f"RT_ICON:{radio_text}")
                 if radio_text.find("*") != -1:
                     radio_text_fast = True
                     radio_text = radio_text.replace("*","")
                 radio_text_formatted = self.format_frequency(radio_text).strip()
                 if radio_text_fast == True:
                     radio_text_formatted = f"*{radio_text_formatted}*"
-                print(f"RTF_ICON:{radio_text_formatted}")
                 match packet_data[0]:
                     case 0x40:
                         self.radio.vfo_active_processing = RADIO_VFO.LEFT
