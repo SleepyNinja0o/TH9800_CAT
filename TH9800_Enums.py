@@ -134,6 +134,7 @@ class RADIO_TX_CMD(Enum):
     L_DIAL_LEFT = (bytearray([0x01]),2,3)
     L_DIAL_RIGHT = (bytearray([0x02]),2,3)
     L_VOLUME_PRESS = (bytearray([0x01,0x26]),3,5)
+    L_VOLUME_HOLD = (bytearray([0x00,0x26]),3,5)
     L_VOLUME = (bytearray([0x01,0xEB,0x00]),5,8)
     L_SQUELCH = (bytearray([0x02,0xEB,0x00]),8,11)
     L_LOW = (bytearray([0x00,0x21]),3,5)

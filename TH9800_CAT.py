@@ -326,7 +326,7 @@ class SerialPacket:
         packet_data = packet[4:-1]
         match packet_cmd:
             case RADIO_RX_CMD.DISPLAY_TEXT.value:
-                self.radio.vfo_text = packet_data[2:8].decode().strip()
+                self.radio.vfo_text = packet_data[2:8].decode()
                 radio_text = self.radio.vfo_text
                 radio_channel = self.radio.vfo_channel
                 match packet_data[0]:
@@ -450,7 +450,7 @@ class SerialPacket:
                 if radio_text.find("*") != -1:
                     radio_text_fast = True
                     radio_text = radio_text.replace("*","")
-                radio_text_formatted = self.format_frequency(radio_text)
+                radio_text_formatted = self.format_frequency(radio_text).strip()
                 if radio_text_fast == True:
                     radio_text_formatted = f"*{radio_text_formatted}*"
                 match packet_data[0]:
@@ -582,6 +582,9 @@ def button_callback(sender, app_data, user_data):
     radio = protocol.radio
 
     match label.upper():
+        case "SINGLE VFO":
+            radio.exe_cmd(cmd=RADIO_TX_CMD['L_VOLUME_HOLD'])
+            return
         case "SET FREQ":
             if radio.vfo_type[radio.vfo_active] == RADIO_VFO_TYPE.MEMORY:
                 return
@@ -729,10 +732,11 @@ def build_gui(protocol):
     with dpg.window(tag="radio_window", show=False, label="Radio Front Panel", width=580, height=530, pos=[0,20], no_move=True, user_data={"protocol": protocol}):
         # === Hyper Mem Buttons A-F ===
         with dpg.group(horizontal=True):
-            dpg.add_text("Hyper Memories: ", indent=45)
+            dpg.add_text("Hyper Memories: ", indent=15)
             for label in ["A", "B", "C", "D", "E", "F"]:
                 dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": f"H{label}", "protocol": protocol, "vfo": RADIO_VFO.NONE})
-
+            dpg.add_spacer(width=10)
+            dpg.add_button(label="Single VFO", width=90, callback=button_callback, user_data={"label": "Single VFO", "protocol": protocol, "vfo": RADIO_VFO.NONE})
         dpg.add_spacer(height=5)
         dpg.add_separator()
         dpg.add_spacer(height=3)
