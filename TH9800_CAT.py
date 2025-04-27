@@ -9,7 +9,7 @@ import re
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
-debug = True
+debug = False
 
 def start_event_loop():
     loop.run_forever()
