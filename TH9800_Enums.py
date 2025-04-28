@@ -19,11 +19,11 @@ class RADIO_VFO(Enum):
         return str(self.value)
 
 class RADIO_VFO_TYPE(Enum):
-    MEMORY = "M"
-    VFO = "V"
+    MEMORY = 1
+    VFO = 0
 
     def __str__(self):
-        return str(self.value)
+        return int(self.value)
 
 class RADIO_RX_ICON(Enum):
     #Data index 1
