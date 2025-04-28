@@ -396,7 +396,6 @@ class SerialPacket:
                         if self.radio.startup == True:
                             self.radio.startup = False
                             printd("*******Startup complete*******\n")
-                            self.radio.process_cmdline_commands()
                         self.radio.vfo_change = False
                         printd("vfo_change: False")
                         if self.radio.connect_process == True:
