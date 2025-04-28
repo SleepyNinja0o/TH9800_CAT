@@ -76,6 +76,8 @@ class SerialRadio:
         printd(f"RADIO VFO TYPE set to {self.vfo_type[vfo]}")
 
     def set_dpg_theme(self, tag, color):
+        if self.dpg_enabled == False:
+            return
         match color:
             case "red":
                 color_value = (255, 0, 0, 255)
@@ -94,12 +96,18 @@ class SerialRadio:
         except Exception as e:
             printd(f"****************Error occurred: {e}****************")
             
-
+    def set_active_vfo(self, vfo: RADIO_VFO):
+        printd(f"Current VFO: {self.vfo_active}")
+        vfo_name = str(vfo)
+        if self.vfo_active != vfo:
+            printd(f"Set MAIN VFO to {vfo_name}")
+            self.exe_cmd(cmd=RADIO_TX_CMD[f"{vfo_name}_DIAL_PRESS"])
+        
     def set_icon(self, vfo: RADIO_VFO, icon: RADIO_RX_ICON, value):
         vfo_name = str(vfo).lower()
         icon_name = str(icon).lower()
         self.icons[vfo][icon_name.upper()] = value
-        printd(f"SETICON {vfo_name.upper()}_{icon_name.upper()} = {value}")
+        #printd(f"SETICON {vfo_name.upper()}_{icon_name.upper()} = {value}")
         
         match icon:
             case RADIO_RX_ICON.AM:
@@ -110,7 +118,9 @@ class SerialRadio:
                 tag = f"icon_{icon_name}"
             case RADIO_RX_ICON.MAIN:
                 tag = f"icon_{vfo_name}_{icon_name}"
-                self.vfo_active = vfo
+                if value == True:
+                    self.vfo_active = vfo
+                    printd(f"*****MAIN VFO SET TO: {self.vfo_active}")
             case _:
                 tag = f"icon_{vfo_name}_{icon_name}"
         
@@ -123,8 +133,9 @@ class SerialRadio:
                 color = "black"
         else:
             color = "black"
-
-        self.set_dpg_theme(tag=tag,color=color)
+        
+        if self.dpg_enabled == True:
+            self.set_dpg_theme(tag=tag,color=color)
 
     def set_volume(self, vfo: RADIO_VFO, vol: int = 25):
         vfo = str(vfo)
@@ -156,6 +167,13 @@ class SerialRadio:
     def exe_cmd(self, cmd: RADIO_TX_CMD, payload: bytes = None):
         cmd_name = cmd.name
         cmd_data = self.get_cmd_pkt(cmd=cmd,payload=payload)
+        
+        if cmd == RADIO_TX_CMD.L_SET_VFO:
+            self.set_active_vfo(vfo=RADIO_VFO.LEFT)
+            return
+        if cmd == RADIO_TX_CMD.R_SET_VFO:
+            self.set_active_vfo(vfo=RADIO_VFO.RIGHT)
+            return
         
         #If MIC PTT(TX) and UP/DOWN/P btn is pressed, ignore it
         if self.mic_ptt == True and re.match(r"MIC_(UP|DOWN|P\d+)",cmd_name):
@@ -334,8 +352,9 @@ class SerialPacket:
                         printd(f"{str(self.radio.vfo_active_processing)}<***Set Freq Fast [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
                         radio_text = f"*{radio_text}*"
                         self.radio.vfo_text = radio_text
-                        dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",radio_channel)
-                        dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
+                        if self.radio.dpg_enabled == True:
+                            dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",radio_channel)
+                            dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
                     case (0x40|0xC0):
                         if self.radio.vfo_change == True:
                             return
@@ -358,7 +377,8 @@ class SerialPacket:
                     case 0x40 | 0x60:
                         self.radio.vfo_type[RADIO_VFO.LEFT] = RADIO_VFO_TYPE.MEMORY
                         if packet_data[0] == 0x60:
-                            dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",self.radio.vfo_channel)
+                            if self.radio.dpg_enabled == True:
+                                dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",self.radio.vfo_channel)
                     case 0xC0 | 0xE0:
                         self.radio.vfo_type[RADIO_VFO.RIGHT] = RADIO_VFO_TYPE.MEMORY
             case RADIO_RX_CMD.DISPLAY_CHANGE.value:
@@ -373,6 +393,10 @@ class SerialPacket:
                         self.radio.vfo_change = False
                         printd("vfo_change: False")
                     case 0x83:
+                        if self.radio.startup == True:
+                            self.radio.startup = False
+                            printd("*******Startup complete*******\n")
+                            self.radio.process_cmdline_commands()
                         self.radio.vfo_change = False
                         printd("vfo_change: False")
                         if self.radio.connect_process == True:
@@ -456,16 +480,20 @@ class SerialPacket:
                 match packet_data[0]:
                     case 0x40:
                         self.radio.vfo_active_processing = RADIO_VFO.LEFT
-                        dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
+                        if self.radio.dpg_enabled == True:
+                            dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
                     case 0x41:
                         self.radio.vfo_active_processing = RADIO_VFO.LEFT
-                        dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text_formatted)
+                        if self.radio.dpg_enabled == True:
+                            dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text_formatted)
                     case 0xC0:
                         self.radio.vfo_active_processing = RADIO_VFO.RIGHT
-                        dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
+                        if self.radio.dpg_enabled == True:
+                            dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
                     case 0xC1:
                         self.radio.vfo_active_processing = RADIO_VFO.RIGHT
-                        dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text_formatted)
+                        if self.radio.dpg_enabled == True:
+                            dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text_formatted)
             case RADIO_RX_CMD.STARTUP_1.value:
                 match packet_data[0]:
                     case 0x00:
@@ -484,11 +512,6 @@ class SerialPacket:
                 match packet_data[0]:
                     case 0x20:
                         self.protocol.send_packet(self.create_tx_packet(payload=bytes([0xA0,0x18,0x02])))
-            case RADIO_RX_CMD.STARTUP_4.value:
-                match packet_data[0]:
-                    case 0xFF:
-                        self.radio.startup = False
-                        printd("*******Startup complete*******\n")
             case _:
                 printd(F"Unkown pkt: {packet.hex().upper()}")
 
@@ -556,8 +579,9 @@ def update_signal(vfo: RADIO_VFO, s_value: int):
         percent = 0
     else:
         percent = (s_value - 1) / 8  # Map S1–S9 to 0.0–1.0 range
-    dpg.set_value(f"icon_{vfo}_signal", percent)
-    dpg.configure_item(f"icon_{vfo}_signal",overlay=f"S{s_value}")
+    if self.radio.dpg_enabled == True:
+        dpg.set_value(f"icon_{vfo}_signal", percent)
+        dpg.configure_item(f"icon_{vfo}_signal",overlay=f"S{s_value}")
 
 def refresh_comports_callback(sender, app_data, user_data):
     ports = []
@@ -574,7 +598,7 @@ def cancel_callback(sender, app_data, user_data):
 
 def button_callback(sender, app_data, user_data):
     label = user_data["label"]
-    if user_data["vfo"] == RADIO_VFO.LEFT or user_data["vfo"] == RADIO_VFO.RIGHT or user_data["vfo"] == RADIO_VFO.MIC:
+    if user_data["vfo"] == RADIO_VFO.LEFT or user_data["vfo"] == RADIO_VFO.RIGHT or user_data["vfo"] == RADIO_VFO.MIC or user_data["vfo"] == RADIO_VFO.NONE:
         vfo = user_data["vfo"].value
     else:
         vfo = user_data["vfo"]
@@ -612,12 +636,10 @@ def button_callback(sender, app_data, user_data):
             label = "POUND"
             
 
-    if vfo == RADIO_VFO.LEFT.value or vfo == RADIO_VFO.RIGHT.value or vfo == RADIO_VFO.MIC.value:
+    if vfo == RADIO_VFO.LEFT.value or vfo == RADIO_VFO.RIGHT.value or vfo == RADIO_VFO.MIC.value or vfo == RADIO_VFO.NONE.value:
         radio.exe_cmd(cmd=RADIO_TX_CMD[f"{vfo}_{label}"])
     else:
         match label:
-            case "MENU":
-                radio.exe_cmd(cmd=RADIO_TX_CMD[label])
             case "HA"|"HB"|"HC"|"HD"|"HE"|"HF":
                 radio.exe_cmd(cmd=RADIO_TX_CMD[f"HYPER_{label.replace("H","")}"])
 
@@ -649,11 +671,11 @@ async def connect_serial_async(protocol, com_port, baudrate):
         )
         await protocol.ready.wait()
         printd(f"Connected to {com_port} at {baudrate} baud.")
-        dpg.configure_item("radio_window", show=True)
-        dpg.configure_item("connection_window", collapsed=True)
-        dpg.configure_item("connect_button", label="Disconnect")
+        if radio.dpg_enabled == True:
+            dpg.configure_item("radio_window", show=True)
+            dpg.configure_item("connection_window", collapsed=True)
+            dpg.configure_item("connect_button", label="Disconnect")
         asyncio.create_task(read_loop(protocol))
-        
         radio.connect_process = True
 
         radio.exe_cmd(cmd=RADIO_TX_CMD.STARTUP)
@@ -665,10 +687,11 @@ async def connect_serial_async(protocol, com_port, baudrate):
         return transport
     except Exception as e:
         printd(f"Connection failed: {e}")
-        with dpg.window(label="Error", modal=True, no_close=True) as modal_id:
-            dpg.add_text(e, wrap=300)
-            dpg.add_button(label="Ok", width=75, user_data=(modal_id, True), callback=cancel_callback)
-        dpg.set_item_pos(modal_id, [120, 100])
+        if radio.dpg_enabled == True:
+            with dpg.window(label="Error", modal=True, no_close=True) as modal_id:
+                dpg.add_text(e, wrap=300)
+                dpg.add_button(label="Ok", width=75, user_data=(modal_id, True), callback=cancel_callback)
+            dpg.set_item_pos(modal_id, [120, 100])
         return None
 
 def port_selected_callback(sender, app_data, user_data):

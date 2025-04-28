@@ -121,8 +121,12 @@ class RADIO_TX_CMD(Enum):
     DEFAULT = (bytearray(),0,0)
     STARTUP = (bytearray([0x80]),0,12)
     
+    #Custom Commands
+    L_SET_VFO = (bytearray([0x23, 0x24]),3,5) #Set main VFO to Left side
+    R_SET_VFO = (bytearray([0x24, 0x23]),3,5) #Set main VFO to Right side
+    
     #Menu Button
-    MENU = (bytearray([0x00,0x20]),3,5)
+    N_MENU = (bytearray([0x00,0x20]),3,5)
     
     #Left/Right VOL SQ CMDs used during radio startup
     L_VOLUME_SQUELCH = (bytearray([0x01,0xEB,0x00,0x02,0xEB,0x00]),5,11)
