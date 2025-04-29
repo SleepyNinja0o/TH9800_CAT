@@ -40,18 +40,20 @@ class SerialRadio:
             },
             RADIO_VFO.LEFT: {
                 "name": "",
-                "frequency": 146520000, # 146.520 MHz
+                "channel": -1,
+                "frequency": 0, # 100.000 MHz
                 "mode": "FM",
-                "operating_mode ": 0,   # 0 = VFO mode, 1 = Memory mode
+                "operating_mode": int(RADIO_VFO_TYPE.MEMORY),   # 0 = VFO mode, 1 = Memory mode
                 "width": 2500,          # 2.5 kHz
                 "ptt": 0,               # PTT off
                 "icons": {}
             },
             RADIO_VFO.RIGHT:{
                 "name": "",
-                "frequency": 146520000, # 146.520 MHz
+                "channel": -1,
+                "frequency": 0, # 100.000 MHz
                 "mode": "FM",
-                "operating_mode ": 1,   # 0 = VFO mode, 1 = Memory mode
+                "operating_mode": int(RADIO_VFO_TYPE.MEMORY),   # 0 = VFO mode, 1 = Memory mode
                 "width": 2500,          # 2.5 kHz
                 "ptt": 0,               # PTT off
                 "icons": {}
@@ -66,7 +68,7 @@ class SerialRadio:
         self.mic_ptt = False
         self.mic_ptt_disabled = False
 
-        for vfo in (RADIO_VFO.NONE,RADIO_VFO.LEFT,RADIO_VFO.RIGHT):
+        for vfo in (RADIO_VFO.LEFT,RADIO_VFO.RIGHT):
             for icon in RADIO_RX_ICON:
                 self.vfo_memory[vfo]['icons'].update({f"{icon.name}": False})
             self.vfo_memory[vfo]['icons']['SIGNAL'] = 0
@@ -91,7 +93,7 @@ class SerialRadio:
                 self.vfo_memory[vfo]['operating_mode'] = int(RADIO_VFO_TYPE.VFO)
             case RADIO_VFO_TYPE.VFO:
                 self.vfo_memory[vfo]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
-        printd(f"RADIO VFO TYPE set to {self.vfo_memory[vfo]['operating_mode']}")
+        printd(f"RADIO VFO TYPE0 set to {self.vfo_memory[vfo]['operating_mode']}")
 
     def set_dpg_theme(self, tag, color):
         if self.dpg_enabled == False:
@@ -176,7 +178,6 @@ class SerialRadio:
             return self.vfo_memory[vfo]['frequency']
         elif self.vfo_memory[vfo]['operating_mode'] == int(RADIO_VFO_TYPE.MEMORY):
             self.exe_cmd(cmd=RADIO_TX_CMD[f"{vfo_name}_LOW_HOLD"])
-            sleep(2)
             self.exe_cmd(cmd=RADIO_TX_CMD[f"{vfo_name}_LOW_HOLD"])
 
     def set_freq(self, vfo: RADIO_VFO, freq: str):
@@ -232,9 +233,11 @@ class SerialRadio:
                 cmd_pkt = self.packet.create_tx_packet(payload=cmd_data)
                 printd(f"*****PTT replay: {cmd_pkt.hex().upper()}*****")
             else:
+                self.protocol.send_packet(cmd_pkt)
+                sleep(.1)
                 cmd_data2 = self.get_cmd_pkt(cmd=RADIO_TX_CMD.DEFAULT)
                 cmd_pkt2 = self.packet.create_tx_packet(payload=cmd_data2)
-                cmd_pkt += cmd_pkt2
+                cmd_pkt = cmd_pkt2
         
         self.protocol.send_packet(cmd_pkt)
 
@@ -243,6 +246,7 @@ class SerialProtocol(asyncio.Protocol):
         self.transport = None
         self.ready = asyncio.Event()
         self.receive_queue = asyncio.Queue()
+        self.transmit_queue = asyncio.Queue()
         self.buffer = bytearray()
         self.radio = radio
 
@@ -302,7 +306,8 @@ class SerialProtocol(asyncio.Protocol):
     def send_packet(self, data: bytes):
         if self.transport and not self.transport.is_closing():
             printd(f"Sending: {data.hex().upper()}")
-            self.transport.write(data)
+            self.transmit_queue.put_nowait(data)
+            #self.transport.write(data)
         else:
             print("Transport is not available or already closed.")
 
@@ -393,7 +398,14 @@ class SerialPacket:
                                 printd(f"{str(self.radio.vfo_active_processing)}<***Radio Power [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
                             else:
                                 printd(f"{str(self.radio.vfo_active_processing)}<***Set Channel [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
-                                self.radio.vfo_memory[self.radio.vfo_active_processing]['name'] = radio_text
+                                if self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] != -1:
+                                    self.radio.vfo_memory[self.radio.vfo_active_processing]['name'] = radio_text
+                                else:
+                                    self.radio.vfo_memory[self.radio.vfo_active_processing]['name'] = ""
+                                if radio_channel.strip() == "":
+                                    self.radio.vfo_memory[self.radio.vfo_active_processing]['channel'] = -1
+                                else:
+                                    self.radio.vfo_memory[self.radio.vfo_active_processing]['channel'] = int(radio_channel.strip())
                         if self.radio.dpg_enabled == True:
                             dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",radio_channel)
                             dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
@@ -406,14 +418,14 @@ class SerialPacket:
                     case 0x40 | 0x60:
                         if self.radio.menu_open == False:
                             self.radio.vfo_memory[RADIO_VFO.LEFT]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
-                            printd(f"****RADIO VFO TYPE set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
+                            printd(f"****RADIO VFO TYPE1 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
                         if packet_data[0] == 0x60:
                             if self.radio.dpg_enabled == True:
                                 dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",self.radio.vfo_channel)
                     case 0xC0 | 0xE0:
                         if self.radio.menu_open == False:
                             self.radio.vfo_memory[RADIO_VFO.RIGHT]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
-                            printd(f"****RADIO VFO TYPE set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
+                            printd(f"****RADIO VFO TYPE1 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
             case RADIO_RX_CMD.DISPLAY_CHANGE.value:
                 match packet_data[0]:
                     case 0x43:
@@ -515,32 +527,40 @@ class SerialPacket:
                         self.radio.vfo_active_processing = RADIO_VFO.LEFT
                         if self.radio.menu_open == False:
                             self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
-                            printd(f"****RADIO VFO TYPE set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
+                            printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
                         if self.radio.dpg_enabled == True:
                             dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
                     case 0x41:
                         self.radio.vfo_active_processing = RADIO_VFO.LEFT
                         if self.radio.menu_open == False:
                             self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.VFO)
-                            printd(f"****RADIO VFO TYPE set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
-                            self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(self.radio.vfo_text)*1000)
-                            printd(f"Freq set to {str(int(self.radio.vfo_text)*1000)} for {self.radio.vfo_active_processing}")
+                            printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
+                            try:
+                                self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(self.radio.vfo_text)*1000)
+                            except:
+                                self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = str(int(-1))
+                                self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(-1))
+                            printd(f"Freq set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency']} for {self.radio.vfo_active_processing}")
                         if self.radio.dpg_enabled == True:
                             dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text_formatted)
                     case 0xC0:
                         self.radio.vfo_active_processing = RADIO_VFO.RIGHT
                         if self.radio.menu_open == False:
                             self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
-                            printd(f"****RADIO VFO TYPE set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
+                            printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
                         if self.radio.dpg_enabled == True:
                             dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
                     case 0xC1:
                         self.radio.vfo_active_processing = RADIO_VFO.RIGHT
                         if self.radio.menu_open == False:
                             self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.VFO)
-                            printd(f"****RADIO VFO TYPE set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
-                            self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(self.radio.vfo_text)*1000)
-                            printd(f"Freq set to {str(int(self.radio.vfo_text)*1000)} for {self.radio.vfo_active_processing}")
+                            printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
+                            try:
+                                self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(self.radio.vfo_text)*1000)
+                            except:
+                                self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = str(int(-1))
+                                self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(-1))
+                            printd(f"Freq set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency']} for {self.radio.vfo_active_processing}")
                         if self.radio.dpg_enabled == True:
                             dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text_formatted)
             case RADIO_RX_CMD.STARTUP_1.value:
@@ -825,8 +845,13 @@ def refresh_comports_callback(sender, app_data, user_data):
     dpg.configure_item("com_port", default_value=ports[0] if available_ports else "")
 
 def cancel_callback(sender, app_data, user_data):
-    modal_id = user_data[0]
+    modal_id = user_data
     dpg.configure_item(modal_id, show=False)
+
+def dpg_notification_window(title, message):
+    with dpg.window(label=title, modal=True, no_close=True, pos=[22, 100]) as modal_id:
+        dpg.add_text(message, wrap=500)
+        dpg.add_button(label="Ok", width=75, user_data=(modal_id), callback=cancel_callback)
 
 def button_callback(sender, app_data, user_data):
     label = user_data["label"]
@@ -841,6 +866,11 @@ def button_callback(sender, app_data, user_data):
     match label.upper():
         case "SINGLE VFO":
             radio.exe_cmd(cmd=RADIO_TX_CMD['L_VOLUME_HOLD'])
+            return
+        case "GET STATE":
+            dpg_notification_window(title="Radio State", message=radio.vfo_memory)
+            #radio.get_freq(vfo=RADIO_VFO.LEFT)
+            #radio.get_freq(vfo=RADIO_VFO.RIGHT)
             return
         case "SET FREQ":
             if self.vfo_memory[radio.vfo_memory['vfo_active']]['operating_mode'] == int(RADIO_VFO_TYPE.MEMORY):
@@ -912,6 +942,7 @@ async def connect_serial_async(protocol, com_port, baudrate):
             dpg.configure_item("connection_window", collapsed=True)
             dpg.configure_item("connect_button", label="Disconnect")
         asyncio.create_task(read_loop(protocol))
+        asyncio.create_task(write_loop(protocol))
         radio.connect_process = True
 
         radio.exe_cmd(cmd=RADIO_TX_CMD.STARTUP)
@@ -919,7 +950,9 @@ async def connect_serial_async(protocol, com_port, baudrate):
         radio.exe_cmd(cmd=RADIO_TX_CMD.L_VOLUME_SQUELCH)
         await asyncio.sleep(0.5)
         radio.exe_cmd(cmd=RADIO_TX_CMD.R_VOLUME_SQUELCH)
-        await asyncio.sleep(0.5)
+        
+        radio.get_freq(vfo=RADIO_VFO.LEFT)
+        radio.get_freq(vfo=RADIO_VFO.RIGHT)
         
         cat_controller = CATController(radio=radio)
         radio.cat = cat_controller
@@ -977,11 +1010,13 @@ async def read_loop(protocol: SerialProtocol):
     while True:
         packet = await protocol.receive_queue.get()
         packet_processor = SerialPacket(protocol=protocol).process_rx_packet(packet=packet)
-        """
-        #printd("Processed from queue:", packet.decode('utf-8', errors='ignore'))
-        #printd("Byte Array:", packet.hex().upper())
-        #printd("CMD:(",bytes([packet_cmd]).hex().upper(),") Data:(",packet_data.hex().upper(),")")
-        """
+
+async def write_loop(protocol: SerialProtocol):
+    while True:
+        data = await protocol.transmit_queue.get()
+        protocol.transport.write(data)
+        if data.hex().find("aafd0c84ffffffff") == -1: #If match sq/vol cmd skip sleep
+            await asyncio.sleep(0.15)
 
 def build_gui(protocol):
     ports = []
@@ -1166,12 +1201,14 @@ def build_gui(protocol):
             for label in ["1", "2", "3", "A"]:
                 dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": label, "protocol": protocol,"vfo": RADIO_VFO.MIC})
             dpg.add_spacer(width=130)
-            dpg.add_button(label="Set Freq", width=80, callback=button_callback, user_data={"label": "Set Freq", "protocol": protocol,"vfo": RADIO_VFO.MIC})
+            dpg.add_button(label="Set Freq", width=80, callback=button_callback, user_data={"label": "Set Freq", "protocol": protocol,"vfo": RADIO_VFO.NONE})
             dpg.add_input_text(tag="setfreq_text", decimal=True, no_spaces=True, width=80, default_value="")
         with dpg.group(horizontal=True):
             dpg.add_spacer(width=mic_spacer_width)
             for label in ["4", "5", "6", "B"]:
                 dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": label, "protocol": protocol, "vfo": RADIO_VFO.MIC})
+            dpg.add_spacer(width=130)
+            dpg.add_button(label="Get State", width=80, callback=button_callback, user_data={"label": "Get State", "protocol": protocol,"vfo": RADIO_VFO.NONE})
         with dpg.group(horizontal=True):
             dpg.add_spacer(width=mic_spacer_width)
             for label in ["7", "8", "9", "C"]:
@@ -1225,10 +1262,7 @@ def build_gui(protocol):
             dpg.add_button(label="Connect", tag="connect_button", indent=5, width=100, callback=port_selected_callback, user_data={"com_port": com_port, "baudrate": baudrate, "protocol": protocol})
 
         if len(available_ports) == 0:
-            with dpg.window(label="Error", modal=True, no_close=True) as modal_id:
-                dpg.add_text("No COM ports available for connection!")
-                dpg.add_button(label="Ok", width=75, user_data=(modal_id, True), callback=cancel_callback)
-            dpg.set_item_pos(modal_id, [120, 100])
+            dpg_notification_window(title="Error", message="No COM ports available for connection!")
 
 async def main():
     radio = SerialRadio(dpg)
