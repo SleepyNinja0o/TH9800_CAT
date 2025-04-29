@@ -22,7 +22,7 @@ class RADIO_VFO_TYPE(Enum):
     MEMORY = 1
     VFO = 0
 
-    def __str__(self):
+    def __int__(self):
         return int(self.value)
 
 class RADIO_RX_ICON(Enum):
