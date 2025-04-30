@@ -1015,11 +1015,13 @@ async def read_loop(protocol: SerialProtocol):
 
 async def write_loop(protocol: SerialProtocol):
     while True:
-        data = await asyncio.wait_for(protocol.transmit_queue.get(), timeout=.10) #FIX FOR LINUX FREEZES ON TRANSMIT
-        #data = await protocol.transmit_queue.get()
-        protocol.transport.write(data)
-        if data.hex().find("aafd0c84ffffffff") == -1: #If match sq/vol cmd skip sleep
-            await asyncio.sleep(0.15)
+        try:
+            data = await asyncio.wait_for(protocol.transmit_queue.get(), timeout=.10) #FIX FOR LINUX FREEZES ON TRANSMIT (Old: #data = await protocol.transmit_queue.get())
+            protocol.transport.write(data)
+            if data.hex().find("aafd0c84ffffffff") == -1: #If match sq/vol cmd skip sleep
+                await asyncio.sleep(0.15)
+        except:
+            None
 
 def build_gui(protocol):
     ports = []
