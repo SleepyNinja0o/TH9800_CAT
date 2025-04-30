@@ -753,7 +753,7 @@ class CATController:
 
     # Operating Mode (VFO/MEMOREY)
     async def get_operating_mode(self) -> int:
-        return get_vfo_memory("operating_mode")
+        return self.get_vfo_memory("operating_mode")
         #return self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]['operating_mode']
 
     async def set_operating_mode(self, mode: int):
@@ -764,7 +764,7 @@ class CATController:
 
     # Channel Name
     async def get_memory_name(self, mem_num: int) -> str:
-        memory = get_vfo_memory("name")
+        memory = self.get_vfo_memory("name")
         #memory = self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]['name']
         if not memory:
             return ""
@@ -772,7 +772,7 @@ class CATController:
 
     # Frequency
     async def get_frequency(self) -> int:
-        return get_vfo_memory("frequency")
+        return self.get_vfo_memory("frequency")
         #return self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["frequency"]
 
     async def set_frequency(self, freq: int):
@@ -782,7 +782,7 @@ class CATController:
     # Mode and bandwidth
     async def get_mode(self) -> tuple:
         vfo = self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]
-        return get_vfo_memory("mode"),get_vfo_memory("width")
+        return self.get_vfo_memory("mode"),get_vfo_memory("width")
         #return vfo["mode"], vfo["width"]
 
     async def set_mode(self, mode: str, width: int):
@@ -794,7 +794,7 @@ class CATController:
 
     # PTT
     async def get_ptt(self) -> int:
-        get_vfo_memory("ptt")
+        self.get_vfo_memory("ptt")
         #return self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["ptt"]
 
     async def set_ptt(self, state: int):
@@ -803,7 +803,7 @@ class CATController:
 
     # VFO switching
     async def get_vfo(self) -> str:
-        match get_vfo_memory("vfo_active"):
+        match self.get_vfo_memory("vfo_active"):
             case RADIO_VFO.LEFT:
                 return "VFOA"
             case RADIO_VFO.RIGHT:
