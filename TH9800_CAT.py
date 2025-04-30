@@ -666,10 +666,16 @@ class RigctlServer:
                 print(f"Received: {command}")
 
                 # === Use your CAT controller ===
-                if command == 'f':
+                if command == '\get_powerstat':
+                    writer.write(b"1\n")
+                elif command == '\chk_vfo':
+                    writer.write(b"0\n")
+                elif command == '\dump_state':
+                    dump = await self.cat.dump_state()
+                    writer.write(dump.encode())
+                elif command == 'f':
                     freq = await self.cat.get_frequency()
                     writer.write(f"{freq}\n".encode())
-
                 elif command.startswith('F '):
                     try:
                         freq = int(command.split()[1])
@@ -677,11 +683,9 @@ class RigctlServer:
                         writer.write(b"0\n")
                     except ValueError:
                         writer.write(b"-1\n")
-
                 elif command == 'g':
                     op_mode = await self.cat.get_operating_mode()  # 0 = VFO, 1 = Memory
                     writer.write(f"{op_mode}\n".encode())
-
                 elif command.startswith('G '):
                     try:
                         mode = int(command.split()[1])
@@ -689,11 +693,9 @@ class RigctlServer:
                         writer.write(b"0\n")
                     except (IndexError, ValueError):
                         writer.write(b"-1\n")
-
                 elif command == 'm':
                     mode, width = await self.cat.get_mode()
                     writer.write(f"{mode} {width}\n".encode())
-
                 elif command.startswith('M '):
                     try:
                         parts = command.split()
@@ -703,7 +705,6 @@ class RigctlServer:
                         writer.write(b"0\n")
                     except (IndexError, ValueError):
                         writer.write(b"-1\n")
-
                 elif command.startswith('n '):
                     try:
                         mem_num = int(command.split()[1])
@@ -711,11 +712,11 @@ class RigctlServer:
                         writer.write(f"{name}\n".encode())
                     except (IndexError, ValueError):
                         writer.write(b"-1\n")
-
+                elif command == 's':
+                    writer.write(b"0\n")
                 elif command == 't':
                     ptt = await self.cat.get_ptt()
                     writer.write(f"{ptt}\n".encode())
-
                 elif command.startswith('T '):
                     try:
                         ptt = int(command.split()[1])
@@ -723,11 +724,17 @@ class RigctlServer:
                         writer.write(b"0\n")
                     except ValueError:
                         writer.write(b"-1\n")
-
                 elif command == 'q':
                     print(f"Disconnect from {addr}")
                     break
-
+                elif command == 'v':
+                    vfo = await self.cat.get_vfo()
+                    writer.write(f"{vfo}\n".encode())
+                elif command.startswith('V '):
+                    parts = command.split()
+                    vfo = str(parts[1])
+                    vfo = await self.cat.set_vfo(vfo=vfo)
+                    writer.write(f"RPRT 0\n".encode())
                 else:
                     print(f"Unknown command: {command}")
                     writer.write(b"-1\n")
@@ -743,28 +750,86 @@ class CATController:
         self.radio = radio
         #self.current_vfo = self.radio.vfo_memory['vfo_active']
 
+    async def dump_state(self) -> str:
+        return (
+        "0\n"  # rigctl protocol version
+        "9800\n"  # rig model (can be any int)
+        "2\n"  # ITU region
+
+        # RX frequency range (start, end, modes, power range, vfo, ant) 0x83 for modes?? 0x02 for vfo?
+        "0.000000 10000000000.000000 0x2ef 5000 50000 0x1 0x0\n"
+
+        # End of RX ranges
+        "0 0 0 0 0 0 0\n"
+        # End of TX ranges
+        "0 0 0 0 0 0 0\n"
+
+        # Tuning steps: mode mask, step
+        "0xef 1\n"
+        "0xef 0\n"
+        "0 0\n"  # end of tuning steps
+
+        # Filter sizes (mode mask, width)
+        "0x82 500\n"
+        "0x82 200\n"
+        "0x82 2000\n"
+        "0x221 10000\n"
+        "0x221 5000\n"
+        "0x221 20000\n"
+        "0x0c 2700\n"
+        "0x0c 1400\n"
+        "0x0c 3900\n"
+        "0x40 160000\n"
+        "0x40 120000\n"
+        "0x40 200000\n"
+        "0 0\n"  # end of filter sizes
+
+        "0\n"  # max_rit
+        "0\n"  # max_xit
+        "0\n"  # max_ifshift
+
+        "0\n"  # announces (bitfield)
+
+        "0\n"  # preamp list
+        "0\n"  # attenuator list
+
+        "0\n"         # get_func
+        "0\n"         # set_func
+        "0x40000020\n"  # get_level (SQL | STRENGTH)
+        "0x20\n"      # set_level (SQL)
+        "0\n"         # get_parm
+        "0\n"         # set_parm
+        )
+
     async def set_vfo_memory(self, name, value):
         printd(f"rigctl SET {name} = {value}")
+        if name == "vfo_active":
+            self.radio.set_active_vfo(vfo=value)
+            return
         self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']][name] = value
         
     async def get_vfo_memory(self, name):
-        printd(f"rigctl GET {name} = {value}")
-        return self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']][name]
+        printd(f"rigctl GET {name}")
+        vfo_active = self.radio.vfo_memory['vfo_active']
+        if name == "vfo_active":
+            return vfo_active
+        printd(f"rigctl GET {name} - VFO: {vfo_active}")
+        return self.radio.vfo_memory[vfo_active][name]
 
     # Operating Mode (VFO/MEMOREY)
     async def get_operating_mode(self) -> int:
-        return self.get_vfo_memory("operating_mode")
+        return await self.get_vfo_memory("operating_mode")
         #return self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]['operating_mode']
 
     async def set_operating_mode(self, mode: int):
         if mode not in (0, 1):
             raise ValueError("Invalid operating mode")
-        self.set_vfo_memory("operating_mode",mode)
+        await self.set_vfo_memory("operating_mode",mode)
         #self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]['operating_mode'] = mode
 
     # Channel Name
     async def get_memory_name(self, mem_num: int) -> str:
-        memory = self.get_vfo_memory("name")
+        memory = await self.get_vfo_memory("name")
         #memory = self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]['name']
         if not memory:
             return ""
@@ -772,38 +837,39 @@ class CATController:
 
     # Frequency
     async def get_frequency(self) -> int:
-        return self.get_vfo_memory("frequency")
+        return await self.get_vfo_memory("frequency")
         #return self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["frequency"]
 
     async def set_frequency(self, freq: int):
-        self.set_vfo_memory("frequency",freq)
+        printd(f"***Set FREQ: {freq}***")
+        self.radio.set_freq(vfo=self.radio.vfo_memory['vfo_active'],freq=str(freq))
+        await self.set_vfo_memory("frequency",freq)
         #self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["frequency"] = freq
 
     # Mode and bandwidth
     async def get_mode(self) -> tuple:
-        vfo = self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]
-        return self.get_vfo_memory("mode"),get_vfo_memory("width")
+        return await self.get_vfo_memory("mode"),await self.get_vfo_memory("width")
         #return vfo["mode"], vfo["width"]
 
     async def set_mode(self, mode: str, width: int):
-        self.set_vfo_memory("mode",mode)
-        self.set_vfo_memory("width",width)
+        await self.set_vfo_memory("mode",mode)
+        await self.set_vfo_memory("width",width)
         #vfo = self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]
         #vfo["mode"] = "FM"      #RADIO IS SOLO FM
         #vfo["width"] = width
 
     # PTT
     async def get_ptt(self) -> int:
-        self.get_vfo_memory("ptt")
-        #return self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["ptt"]
+        return await self.get_vfo_memory("ptt")
 
     async def set_ptt(self, state: int):
-        self.set_vfo_memory("ptt",state)
-        #self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["ptt"] = state
+        await self.set_vfo_memory("ptt",state)
+        #self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["ptt"]
 
     # VFO switching
     async def get_vfo(self) -> str:
-        match self.get_vfo_memory("vfo_active"):
+        vfo_active = await self.get_vfo_memory("vfo_active")
+        match vfo_active:
             case RADIO_VFO.LEFT:
                 return "VFOA"
             case RADIO_VFO.RIGHT:
@@ -816,12 +882,11 @@ class CATController:
             raise ValueError("Invalid VFO")
         match vfo:
             case "VFOA":
-                self.set_vfo_memory("vfo_active",RADIO_VFO.LEFT)
-                #self.radio.vfo_memory['vfo_active'] = RADIO_VFO.LEFT
+                await self.set_vfo_memory("vfo_active",RADIO_VFO.LEFT)
             case "VFOB":
-                self.set_vfo_memory("vfo_active",RADIO_VFO.RIGHT)
+                await self.set_vfo_memory("vfo_active",RADIO_VFO.RIGHT)
             case _:
-                self.set_vfo_memory("vfo_active",RADIO_VFO.LEFT)
+                await self.set_vfo_memory("vfo_active",RADIO_VFO.LEFT)
 
 def update_signal(radio: SerialRadio, vfo: RADIO_VFO, s_value: int):
     vfo = vfo.value.lower()
