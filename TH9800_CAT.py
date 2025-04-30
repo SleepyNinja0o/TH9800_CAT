@@ -872,7 +872,7 @@ def button_callback(sender, app_data, user_data):
             #radio.get_freq(vfo=RADIO_VFO.RIGHT)
             return
         case "SET FREQ":
-            if self.vfo_memory[radio.vfo_memory['vfo_active']]['operating_mode'] == int(RADIO_VFO_TYPE.MEMORY):
+            if radio.vfo_memory[radio.vfo_memory['vfo_active']]['operating_mode'] == int(RADIO_VFO_TYPE.MEMORY):
                 return
             freq = dpg.get_value("setfreq_text").replace(".","").replace("*","").replace("+","").replace("-","").replace("/","")
             if len(freq) < 6:
@@ -890,10 +890,10 @@ def button_callback(sender, app_data, user_data):
         case "PTT":
             if radio.mic_ptt == False:
                 radio.mic_ptt = True
-                radio.vfo_memory[self.current_vfo]['ptt'] = 1
+                radio.vfo_memory[radio.current_vfo]['ptt'] = 1
             else:
                 radio.mic_ptt = False
-                radio.vfo_memory[self.current_vfo]['ptt'] = 0
+                radio.vfo_memory[radio.current_vfo]['ptt'] = 0
                 
         case "*":
             label = "STAR"
