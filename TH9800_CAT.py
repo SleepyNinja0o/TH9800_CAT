@@ -872,7 +872,7 @@ def button_callback(sender, app_data, user_data):
             #radio.get_freq(vfo=RADIO_VFO.RIGHT)
             return
         case "SET FREQ":
-            if self.vfo_memory[radio.vfo_memory['vfo_active']]['operating_mode'] == int(RADIO_VFO_TYPE.MEMORY):
+            if radio.vfo_memory[radio.vfo_memory['vfo_active']]['operating_mode'] == int(RADIO_VFO_TYPE.MEMORY):
                 return
             freq = dpg.get_value("setfreq_text").replace(".","").replace("*","").replace("+","").replace("-","").replace("/","")
             if len(freq) < 6:
@@ -890,10 +890,10 @@ def button_callback(sender, app_data, user_data):
         case "PTT":
             if radio.mic_ptt == False:
                 radio.mic_ptt = True
-                radio.vfo_memory[self.current_vfo]['ptt'] = 1
+                radio.vfo_memory[radio.current_vfo]['ptt'] = 1
             else:
                 radio.mic_ptt = False
-                radio.vfo_memory[self.current_vfo]['ptt'] = 0
+                radio.vfo_memory[radio.current_vfo]['ptt'] = 0
                 
         case "*":
             label = "STAR"
@@ -1015,11 +1015,13 @@ async def read_loop(protocol: SerialProtocol):
 
 async def write_loop(protocol: SerialProtocol):
     while True:
-        data = await asyncio.wait_for(protocol.transmit_queue.get(), timeout=.10) #FIX FOR LINUX FREEZES ON TRANSMIT
-        #data = await protocol.transmit_queue.get()
-        protocol.transport.write(data)
-        if data.hex().find("aafd0c84ffffffff") == -1: #If match sq/vol cmd skip sleep
-            await asyncio.sleep(0.15)
+        try:
+            data = await asyncio.wait_for(protocol.transmit_queue.get(), timeout=.10) #FIX FOR LINUX FREEZES ON TRANSMIT (Old: #data = await protocol.transmit_queue.get())
+            protocol.transport.write(data)
+            if data.hex().find("aafd0c84ffffffff") == -1: #If match sq/vol cmd skip sleep
+                await asyncio.sleep(0.15)
+        except:
+            None
 
 def build_gui(protocol):
     ports = []
