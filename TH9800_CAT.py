@@ -845,8 +845,7 @@ def refresh_comports_callback(sender, app_data, user_data):
     dpg.configure_item("com_port", default_value=ports[0] if available_ports else "")
 
 def cancel_callback(sender, app_data, user_data):
-    modal_id = user_data
-    dpg.configure_item(modal_id, show=False)
+    dpg.configure_item(user_data, show=False)
 
 def dpg_notification_window(title, message):
     with dpg.window(label=title, modal=True, no_close=True, pos=[22, 100]) as modal_id:
@@ -958,6 +957,9 @@ async def connect_serial_async(protocol, com_port, baudrate):
         radio.cat = cat_controller
         rigctl_server = RigctlServer(cat_controller)
         await rigctl_server.start()
+        
+        await asyncio.sleep(2)
+        dpg_notification_window(title="Radio Initialized", message="Radio connected and initialized successfully!")
         
         return transport
     except Exception as e:
