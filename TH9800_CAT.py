@@ -103,6 +103,8 @@ class SerialRadio:
         match color:
             case "red":
                 color_value = (255, 0, 0, 255)
+            case "green":
+                color_value = (0, 255, 0, 255)
             case "black":
                 color_value = (37, 37, 38, 255)
             case "white":
@@ -126,6 +128,8 @@ class SerialRadio:
         match color:
             case "red":
                 color_value = (255, 0, 0, 255)
+            case "green":
+                color_value = (0, 255, 0, 255)
             case "black":
                 color_value = (37, 37, 38, 255)
             case "white":
@@ -274,6 +278,27 @@ class SerialProtocol(asyncio.Protocol):
         self.transmit_queue = asyncio.Queue()
         self.buffer = bytearray()
         self.radio = radio
+
+    def set_rts(self, state: bool):
+        self.transport.serial.rts = state
+        match state:
+            case True:
+                dpg.set_value("rts_text", "USB Controlled")
+                self.radio.set_dpg_theme(tag="rts_text",color="green")
+            case False:
+                dpg.set_value("rts_text", "Radio Controlled")
+                self.radio.set_dpg_theme(tag="rts_text",color="red")
+
+    def toggle_rts(self):
+        state = not self.transport.serial.rts  #Toggle state
+        self.transport.serial.rts = state
+        match state:
+            case True:
+                dpg.set_value("rts_text", "USB Controlled")
+                self.radio.set_dpg_theme(tag="rts_text",color="green")
+            case False:
+                dpg.set_value("rts_text", "Radio Controlled")
+                self.radio.set_dpg_theme(tag="rts_text",color="red")
 
     def reset_ready(self):
         self.ready = asyncio.Event()  # Binds to current event loop
@@ -950,6 +975,10 @@ def button_callback(sender, app_data, user_data):
     protocol = user_data["protocol"]
     radio = protocol.radio
 
+    if label == "Toggle RTS":
+        protocol.toggle_rts()
+        return
+
     match label.upper():
         case "SINGLE VFO":
             radio.exe_cmd(cmd=RADIO_TX_CMD['L_VOLUME_HOLD'])
@@ -1024,7 +1053,12 @@ async def connect_serial_async(protocol, com_port, baudrate):
         )
         await protocol.ready.wait()
         printd(f"Connected to {com_port} at {baudrate} baud.")
+        protocol.set_rts(True) #Enable USB/CAT TX Control
+
         if radio.dpg_enabled == True:
+            dpg.configure_item("rts_button", show=True)
+            dpg.configure_item("rts_text", show=True)
+            dpg.configure_item("rts_label", show=True)
             dpg.configure_item("radio_window", show=True)
             dpg.configure_item("connection_window", collapsed=True)
             dpg.configure_item("connect_button", label="Disconnect")
@@ -1073,6 +1107,9 @@ def port_selected_callback(sender, app_data, user_data):
         protocol.transport.close()
         print(f"{com_port} disconnected.\n")
         dpg.configure_item("connect_button", label="Connect")
+        dpg.configure_item("rts_button", show=False)
+        dpg.configure_item("rts_text", show=False)
+        dpg.configure_item("rts_label", show=False)
         return
 
     try:
@@ -1356,6 +1393,13 @@ def build_gui(protocol):
             baudrate = dpg.get_value("baud_rate")
 
             dpg.add_button(label="Connect", tag="connect_button", indent=5, width=100, callback=port_selected_callback, user_data={"com_port": com_port, "baudrate": baudrate, "protocol": protocol})
+            dpg.add_button(label="Toggle RTS", tag="rts_button", show=False, width=100, callback=button_callback, user_data={"label": "Toggle RTS", "protocol": protocol, "vfo": RADIO_VFO.NONE})
+
+        dpg.add_spacer(height=15)
+        with dpg.group(horizontal=True):
+            dpg.add_text("RTS TX: ", indent=5, tag="rts_label", show=False)
+            dpg.add_text("USB Controlled", tag="rts_text", show=False)
+            protocol.radio.set_dpg_theme(tag="rts_text",color="green")
 
         if len(available_ports) == 0:
             dpg_notification_window(title="Error", message="No COM ports available for connection!")
