@@ -24,6 +24,8 @@ class SerialRadio:
     def __init__(self, dpg: dpg = None, protocol = None):
         self.packet = SerialPacket()
         self.protocol = protocol
+        
+        self.rigctl_server = True
         self.cat = None
         
         self.dpg = dpg
@@ -94,6 +96,29 @@ class SerialRadio:
             case RADIO_VFO_TYPE.VFO:
                 self.vfo_memory[vfo]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
         printd(f"RADIO VFO TYPE0 set to {self.vfo_memory[vfo]['operating_mode']}")
+
+    def set_dpg_theme_background(self, tag, color):
+        if self.dpg_enabled == False:
+            return
+        match color:
+            case "red":
+                color_value = (255, 0, 0, 255)
+            case "black":
+                color_value = (37, 37, 38, 255)
+            case "white":
+                color_value = (255, 255, 255, 255)
+            case "darkgray":
+                color_value = (64, 64, 64, 255)
+            case _:
+                raise ValueError("\nColor not implemented in set_dpg_theme function.")
+        with dpg.theme() as input_theme:
+            with dpg.theme_component(dpg.mvInputText):
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, color_value)
+        printd(f"SET_INPUT_BG_THEME {tag} -  {color}")
+        try:
+            dpg.bind_item_theme(tag, input_theme)
+        except Exception as e:
+            printd(f"****************Error occurred: {e}****************")
 
     def set_dpg_theme(self, tag, color):
         if self.dpg_enabled == False:
@@ -666,11 +691,11 @@ class RigctlServer:
                 print(f"Received: {command}")
 
                 # === Use your CAT controller ===
-                if command == '\get_powerstat':
+                if command == '\\get_powerstat':
                     writer.write(b"1\n")
-                elif command == '\chk_vfo':
+                elif command == '\\chk_vfo':
                     writer.write(b"0\n")
-                elif command == '\dump_state':
+                elif command == '\\dump_state':
                     dump = await self.cat.dump_state()
                     writer.write(dump.encode())
                 elif command == 'f':
@@ -1019,7 +1044,9 @@ async def connect_serial_async(protocol, com_port, baudrate):
         cat_controller = CATController(radio=radio)
         radio.cat = cat_controller
         rigctl_server = RigctlServer(cat_controller)
-        await rigctl_server.start()
+        
+        if radio.rigctl_server == True:
+            await rigctl_server.start()
         
         await asyncio.sleep(2)
         dpg_notification_window(title="Radio Initialized", message="Radio connected and initialized successfully!")
@@ -1097,7 +1124,7 @@ def build_gui(protocol):
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_Text, (37, 37, 38, 255)) #(255, 0, 0, 255) (37, 37, 38, 255)
 
-    with dpg.window(tag="radio_window", show=False, label="Radio Front Panel", width=580, height=530, pos=[0,20], no_move=True, user_data={"protocol": protocol}):
+    with dpg.window(tag="radio_window", show=True, label="Radio Front Panel", width=580, height=530, pos=[0,20], no_move=True, user_data={"protocol": protocol}):
         # === Hyper Mem Buttons A-F ===
         with dpg.group(horizontal=True):
             dpg.add_text("Hyper Memories: ", indent=15)
@@ -1271,6 +1298,7 @@ def build_gui(protocol):
             dpg.add_spacer(width=130)
             dpg.add_button(label="Set Freq", width=80, callback=button_callback, user_data={"label": "Set Freq", "protocol": protocol,"vfo": RADIO_VFO.NONE})
             dpg.add_input_text(tag="setfreq_text", decimal=True, no_spaces=True, width=80, default_value="")
+            #protocol.radio.set_dpg_theme_background(tag="setfreq_text",color="darkgray")
         with dpg.group(horizontal=True):
             dpg.add_spacer(width=mic_spacer_width)
             for label in ["4", "5", "6", "B"]:
