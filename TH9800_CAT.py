@@ -25,7 +25,7 @@ class SerialRadio:
         self.packet = SerialPacket()
         self.protocol = protocol
         
-        self.rigctl_server = True
+        self.rigctl_server = False
         self.cat = None
         
         self.dpg = dpg
