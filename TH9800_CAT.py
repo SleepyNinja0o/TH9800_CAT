@@ -24,6 +24,8 @@ class SerialRadio:
     def __init__(self, dpg: dpg = None, protocol = None):
         self.packet = SerialPacket()
         self.protocol = protocol
+        
+        self.rigctl_server = False
         self.cat = None
         
         self.dpg = dpg
@@ -95,12 +97,39 @@ class SerialRadio:
                 self.vfo_memory[vfo]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
         printd(f"RADIO VFO TYPE0 set to {self.vfo_memory[vfo]['operating_mode']}")
 
+    def set_dpg_theme_background(self, tag, color):
+        if self.dpg_enabled == False:
+            return
+        match color:
+            case "red":
+                color_value = (255, 0, 0, 255)
+            case "green":
+                color_value = (0, 255, 0, 255)
+            case "black":
+                color_value = (37, 37, 38, 255)
+            case "white":
+                color_value = (255, 255, 255, 255)
+            case "darkgray":
+                color_value = (64, 64, 64, 255)
+            case _:
+                raise ValueError("\nColor not implemented in set_dpg_theme function.")
+        with dpg.theme() as input_theme:
+            with dpg.theme_component(dpg.mvInputText):
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, color_value)
+        printd(f"SET_INPUT_BG_THEME {tag} -  {color}")
+        try:
+            dpg.bind_item_theme(tag, input_theme)
+        except Exception as e:
+            printd(f"****************Error occurred: {e}****************")
+
     def set_dpg_theme(self, tag, color):
         if self.dpg_enabled == False:
             return
         match color:
             case "red":
                 color_value = (255, 0, 0, 255)
+            case "green":
+                color_value = (0, 255, 0, 255)
             case "black":
                 color_value = (37, 37, 38, 255)
             case "white":
@@ -249,6 +278,27 @@ class SerialProtocol(asyncio.Protocol):
         self.transmit_queue = asyncio.Queue()
         self.buffer = bytearray()
         self.radio = radio
+
+    def set_rts(self, state: bool):
+        self.transport.serial.rts = state
+        match state:
+            case True:
+                dpg.set_value("rts_text", "USB Controlled")
+                self.radio.set_dpg_theme(tag="rts_text",color="green")
+            case False:
+                dpg.set_value("rts_text", "Radio Controlled")
+                self.radio.set_dpg_theme(tag="rts_text",color="red")
+
+    def toggle_rts(self):
+        state = not self.transport.serial.rts  #Toggle state
+        self.transport.serial.rts = state
+        match state:
+            case True:
+                dpg.set_value("rts_text", "USB Controlled")
+                self.radio.set_dpg_theme(tag="rts_text",color="green")
+            case False:
+                dpg.set_value("rts_text", "Radio Controlled")
+                self.radio.set_dpg_theme(tag="rts_text",color="red")
 
     def reset_ready(self):
         self.ready = asyncio.Event()  # Binds to current event loop
@@ -666,10 +716,16 @@ class RigctlServer:
                 print(f"Received: {command}")
 
                 # === Use your CAT controller ===
-                if command == 'f':
+                if command == '\\get_powerstat':
+                    writer.write(b"1\n")
+                elif command == '\\chk_vfo':
+                    writer.write(b"0\n")
+                elif command == '\\dump_state':
+                    dump = await self.cat.dump_state()
+                    writer.write(dump.encode())
+                elif command == 'f':
                     freq = await self.cat.get_frequency()
                     writer.write(f"{freq}\n".encode())
-
                 elif command.startswith('F '):
                     try:
                         freq = int(command.split()[1])
@@ -677,11 +733,9 @@ class RigctlServer:
                         writer.write(b"0\n")
                     except ValueError:
                         writer.write(b"-1\n")
-
                 elif command == 'g':
                     op_mode = await self.cat.get_operating_mode()  # 0 = VFO, 1 = Memory
                     writer.write(f"{op_mode}\n".encode())
-
                 elif command.startswith('G '):
                     try:
                         mode = int(command.split()[1])
@@ -689,11 +743,9 @@ class RigctlServer:
                         writer.write(b"0\n")
                     except (IndexError, ValueError):
                         writer.write(b"-1\n")
-
                 elif command == 'm':
                     mode, width = await self.cat.get_mode()
                     writer.write(f"{mode} {width}\n".encode())
-
                 elif command.startswith('M '):
                     try:
                         parts = command.split()
@@ -703,7 +755,6 @@ class RigctlServer:
                         writer.write(b"0\n")
                     except (IndexError, ValueError):
                         writer.write(b"-1\n")
-
                 elif command.startswith('n '):
                     try:
                         mem_num = int(command.split()[1])
@@ -711,11 +762,11 @@ class RigctlServer:
                         writer.write(f"{name}\n".encode())
                     except (IndexError, ValueError):
                         writer.write(b"-1\n")
-
+                elif command == 's':
+                    writer.write(b"0\n")
                 elif command == 't':
                     ptt = await self.cat.get_ptt()
                     writer.write(f"{ptt}\n".encode())
-
                 elif command.startswith('T '):
                     try:
                         ptt = int(command.split()[1])
@@ -723,11 +774,17 @@ class RigctlServer:
                         writer.write(b"0\n")
                     except ValueError:
                         writer.write(b"-1\n")
-
                 elif command == 'q':
                     print(f"Disconnect from {addr}")
                     break
-
+                elif command == 'v':
+                    vfo = await self.cat.get_vfo()
+                    writer.write(f"{vfo}\n".encode())
+                elif command.startswith('V '):
+                    parts = command.split()
+                    vfo = str(parts[1])
+                    vfo = await self.cat.set_vfo(vfo=vfo)
+                    writer.write(f"RPRT 0\n".encode())
                 else:
                     print(f"Unknown command: {command}")
                     writer.write(b"-1\n")
@@ -743,28 +800,86 @@ class CATController:
         self.radio = radio
         #self.current_vfo = self.radio.vfo_memory['vfo_active']
 
+    async def dump_state(self) -> str:
+        return (
+        "0\n"  # rigctl protocol version
+        "9800\n"  # rig model (can be any int)
+        "2\n"  # ITU region
+
+        # RX frequency range (start, end, modes, power range, vfo, ant) 0x83 for modes?? 0x02 for vfo?
+        "0.000000 10000000000.000000 0x2ef 5000 50000 0x1 0x0\n"
+
+        # End of RX ranges
+        "0 0 0 0 0 0 0\n"
+        # End of TX ranges
+        "0 0 0 0 0 0 0\n"
+
+        # Tuning steps: mode mask, step
+        "0xef 1\n"
+        "0xef 0\n"
+        "0 0\n"  # end of tuning steps
+
+        # Filter sizes (mode mask, width)
+        "0x82 500\n"
+        "0x82 200\n"
+        "0x82 2000\n"
+        "0x221 10000\n"
+        "0x221 5000\n"
+        "0x221 20000\n"
+        "0x0c 2700\n"
+        "0x0c 1400\n"
+        "0x0c 3900\n"
+        "0x40 160000\n"
+        "0x40 120000\n"
+        "0x40 200000\n"
+        "0 0\n"  # end of filter sizes
+
+        "0\n"  # max_rit
+        "0\n"  # max_xit
+        "0\n"  # max_ifshift
+
+        "0\n"  # announces (bitfield)
+
+        "0\n"  # preamp list
+        "0\n"  # attenuator list
+
+        "0\n"         # get_func
+        "0\n"         # set_func
+        "0x40000020\n"  # get_level (SQL | STRENGTH)
+        "0x20\n"      # set_level (SQL)
+        "0\n"         # get_parm
+        "0\n"         # set_parm
+        )
+
     async def set_vfo_memory(self, name, value):
         printd(f"rigctl SET {name} = {value}")
+        if name == "vfo_active":
+            self.radio.set_active_vfo(vfo=value)
+            return
         self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']][name] = value
         
     async def get_vfo_memory(self, name):
-        printd(f"rigctl GET {name} = {value}")
-        return self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']][name]
+        printd(f"rigctl GET {name}")
+        vfo_active = self.radio.vfo_memory['vfo_active']
+        if name == "vfo_active":
+            return vfo_active
+        printd(f"rigctl GET {name} - VFO: {vfo_active}")
+        return self.radio.vfo_memory[vfo_active][name]
 
     # Operating Mode (VFO/MEMOREY)
     async def get_operating_mode(self) -> int:
-        return get_vfo_memory("operating_mode")
+        return await self.get_vfo_memory("operating_mode")
         #return self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]['operating_mode']
 
     async def set_operating_mode(self, mode: int):
         if mode not in (0, 1):
             raise ValueError("Invalid operating mode")
-        self.set_vfo_memory("operating_mode",mode)
+        await self.set_vfo_memory("operating_mode",mode)
         #self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]['operating_mode'] = mode
 
     # Channel Name
     async def get_memory_name(self, mem_num: int) -> str:
-        memory = get_vfo_memory("name")
+        memory = await self.get_vfo_memory("name")
         #memory = self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]['name']
         if not memory:
             return ""
@@ -772,38 +887,39 @@ class CATController:
 
     # Frequency
     async def get_frequency(self) -> int:
-        return get_vfo_memory("frequency")
+        return await self.get_vfo_memory("frequency")
         #return self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["frequency"]
 
     async def set_frequency(self, freq: int):
-        self.set_vfo_memory("frequency",freq)
+        printd(f"***Set FREQ: {freq}***")
+        self.radio.set_freq(vfo=self.radio.vfo_memory['vfo_active'],freq=str(freq))
+        await self.set_vfo_memory("frequency",freq)
         #self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["frequency"] = freq
 
     # Mode and bandwidth
     async def get_mode(self) -> tuple:
-        vfo = self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]
-        return get_vfo_memory("mode"),get_vfo_memory("width")
+        return await self.get_vfo_memory("mode"),await self.get_vfo_memory("width")
         #return vfo["mode"], vfo["width"]
 
     async def set_mode(self, mode: str, width: int):
-        self.set_vfo_memory("mode",mode)
-        self.set_vfo_memory("width",width)
+        await self.set_vfo_memory("mode",mode)
+        await self.set_vfo_memory("width",width)
         #vfo = self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]
         #vfo["mode"] = "FM"      #RADIO IS SOLO FM
         #vfo["width"] = width
 
     # PTT
     async def get_ptt(self) -> int:
-        get_vfo_memory("ptt")
-        #return self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["ptt"]
+        return await self.get_vfo_memory("ptt")
 
     async def set_ptt(self, state: int):
-        self.set_vfo_memory("ptt",state)
-        #self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["ptt"] = state
+        await self.set_vfo_memory("ptt",state)
+        #self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["ptt"]
 
     # VFO switching
     async def get_vfo(self) -> str:
-        match get_vfo_memory("vfo_active"):
+        vfo_active = await self.get_vfo_memory("vfo_active")
+        match vfo_active:
             case RADIO_VFO.LEFT:
                 return "VFOA"
             case RADIO_VFO.RIGHT:
@@ -816,12 +932,11 @@ class CATController:
             raise ValueError("Invalid VFO")
         match vfo:
             case "VFOA":
-                self.set_vfo_memory("vfo_active",RADIO_VFO.LEFT)
-                #self.radio.vfo_memory['vfo_active'] = RADIO_VFO.LEFT
+                await self.set_vfo_memory("vfo_active",RADIO_VFO.LEFT)
             case "VFOB":
-                self.set_vfo_memory("vfo_active",RADIO_VFO.RIGHT)
+                await self.set_vfo_memory("vfo_active",RADIO_VFO.RIGHT)
             case _:
-                self.set_vfo_memory("vfo_active",RADIO_VFO.LEFT)
+                await self.set_vfo_memory("vfo_active",RADIO_VFO.LEFT)
 
 def update_signal(radio: SerialRadio, vfo: RADIO_VFO, s_value: int):
     vfo = vfo.value.lower()
@@ -859,6 +974,10 @@ def button_callback(sender, app_data, user_data):
         vfo_name = user_data["vfo"]
     protocol = user_data["protocol"]
     radio = protocol.radio
+
+    if label == "Toggle RTS":
+        protocol.toggle_rts()
+        return
 
     match label.upper():
         case "SINGLE VFO":
@@ -934,7 +1053,12 @@ async def connect_serial_async(protocol, com_port, baudrate):
         )
         await protocol.ready.wait()
         printd(f"Connected to {com_port} at {baudrate} baud.")
+        protocol.set_rts(True) #Enable USB/CAT TX Control
+
         if radio.dpg_enabled == True:
+            dpg.configure_item("rts_button", show=True)
+            dpg.configure_item("rts_text", show=True)
+            dpg.configure_item("rts_label", show=True)
             dpg.configure_item("radio_window", show=True)
             dpg.configure_item("connection_window", collapsed=True)
             dpg.configure_item("connect_button", label="Disconnect")
@@ -954,7 +1078,9 @@ async def connect_serial_async(protocol, com_port, baudrate):
         cat_controller = CATController(radio=radio)
         radio.cat = cat_controller
         rigctl_server = RigctlServer(cat_controller)
-        await rigctl_server.start()
+        
+        if radio.rigctl_server == True:
+            await rigctl_server.start()
         
         await asyncio.sleep(2)
         dpg_notification_window(title="Radio Initialized", message="Radio connected and initialized successfully!")
@@ -981,6 +1107,9 @@ def port_selected_callback(sender, app_data, user_data):
         protocol.transport.close()
         print(f"{com_port} disconnected.\n")
         dpg.configure_item("connect_button", label="Connect")
+        dpg.configure_item("rts_button", show=False)
+        dpg.configure_item("rts_text", show=False)
+        dpg.configure_item("rts_label", show=False)
         return
 
     try:
@@ -1032,7 +1161,7 @@ def build_gui(protocol):
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_Text, (37, 37, 38, 255)) #(255, 0, 0, 255) (37, 37, 38, 255)
 
-    with dpg.window(tag="radio_window", show=False, label="Radio Front Panel", width=580, height=530, pos=[0,20], no_move=True, user_data={"protocol": protocol}):
+    with dpg.window(tag="radio_window", show=True, label="Radio Front Panel", width=580, height=530, pos=[0,20], no_move=True, user_data={"protocol": protocol}):
         # === Hyper Mem Buttons A-F ===
         with dpg.group(horizontal=True):
             dpg.add_text("Hyper Memories: ", indent=15)
@@ -1206,6 +1335,7 @@ def build_gui(protocol):
             dpg.add_spacer(width=130)
             dpg.add_button(label="Set Freq", width=80, callback=button_callback, user_data={"label": "Set Freq", "protocol": protocol,"vfo": RADIO_VFO.NONE})
             dpg.add_input_text(tag="setfreq_text", decimal=True, no_spaces=True, width=80, default_value="")
+            #protocol.radio.set_dpg_theme_background(tag="setfreq_text",color="darkgray")
         with dpg.group(horizontal=True):
             dpg.add_spacer(width=mic_spacer_width)
             for label in ["4", "5", "6", "B"]:
@@ -1263,6 +1393,13 @@ def build_gui(protocol):
             baudrate = dpg.get_value("baud_rate")
 
             dpg.add_button(label="Connect", tag="connect_button", indent=5, width=100, callback=port_selected_callback, user_data={"com_port": com_port, "baudrate": baudrate, "protocol": protocol})
+            dpg.add_button(label="Toggle RTS", tag="rts_button", show=False, width=100, callback=button_callback, user_data={"label": "Toggle RTS", "protocol": protocol, "vfo": RADIO_VFO.NONE})
+
+        dpg.add_spacer(height=15)
+        with dpg.group(horizontal=True):
+            dpg.add_text("RTS TX: ", indent=5, tag="rts_label", show=False)
+            dpg.add_text("USB Controlled", tag="rts_text", show=False)
+            protocol.radio.set_dpg_theme(tag="rts_text",color="green")
 
         if len(available_ports) == 0:
             dpg_notification_window(title="Error", message="No COM ports available for connection!")
