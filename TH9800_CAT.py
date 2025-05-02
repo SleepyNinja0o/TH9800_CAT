@@ -9,7 +9,7 @@ import re
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
-debug = True
+debug = False
 
 def start_event_loop():
     loop.run_forever()
@@ -966,6 +966,7 @@ def dpg_notification_window(title, message):
         dpg.add_button(label="Ok", width=75, user_data=(modal_id), callback=cancel_callback)
 
 def button_callback(sender, app_data, user_data):
+    global debug
     label = user_data["label"]
     vfo = user_data["vfo"]
     if vfo == RADIO_VFO.LEFT or vfo == RADIO_VFO.RIGHT or vfo == RADIO_VFO.MIC or vfo == RADIO_VFO.NONE:
@@ -978,6 +979,16 @@ def button_callback(sender, app_data, user_data):
     if label == "Toggle RTS":
         protocol.toggle_rts()
         return
+    elif label == "Enable Debug":
+        debug_label = dpg.get_item_label("debug_button")
+        if debug_label == "Enable Debug":
+            debug = True
+            dpg.configure_item("debug_button", label="Disable Debug")
+            return
+        elif debug_label == "Disable Debug":
+            debug = False
+            dpg.configure_item("debug_button", label="Enable Debug")
+            return
 
     match label.upper():
         case "SINGLE VFO":
@@ -1393,7 +1404,8 @@ def build_gui(protocol):
             baudrate = dpg.get_value("baud_rate")
 
             dpg.add_button(label="Connect", tag="connect_button", indent=5, width=100, callback=port_selected_callback, user_data={"com_port": com_port, "baudrate": baudrate, "protocol": protocol})
-            dpg.add_button(label="Toggle RTS", tag="rts_button", show=False, width=100, callback=button_callback, user_data={"label": "Toggle RTS", "protocol": protocol, "vfo": RADIO_VFO.NONE})
+            dpg.add_button(label="Toggle RTS", tag="rts_button", show=True, width=100, callback=button_callback, user_data={"label": "Toggle RTS", "protocol": protocol, "vfo": RADIO_VFO.NONE})
+            dpg.add_button(label="Enable Debug", tag="debug_button", indent=284, show=True, width=120, callback=button_callback, user_data={"label": "Enable Debug", "protocol": protocol, "vfo": RADIO_VFO.NONE})
 
         dpg.add_spacer(height=15)
         with dpg.group(horizontal=True):
