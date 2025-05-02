@@ -37,14 +37,17 @@ There was no documentation on the remote radio head protocol so I had to reverse
 ## 74LS157 - Quad 2-Input Multiplexer IC Setup
 ![74LS157 TX Switch](https://github.com/user-attachments/assets/2a798c99-ae86-4289-a888-a0873f1f708c)
 
-
 ## Screenshots of Python App
 ### Serial Connection Window
 ![Screenshot 2025-04-22 214317](https://github.com/user-attachments/assets/c9029ed8-e146-4580-85d5-26d850d7f922)
+![Screenshot 2025-05-02 010311](https://github.com/user-attachments/assets/bd5a6030-328c-4deb-934b-fd69ea7c153a)
+
 ### Radio Interface with All Labels Enabled
-![Screenshot 2025-04-22 021954](https://github.com/user-attachments/assets/e916092d-2c22-405b-92a5-9a8e0ce38115)
+![Screenshot 2025-05-02 010658](https://github.com/user-attachments/assets/f856fbdf-8e82-4552-850c-33d39964f6e3)
+
 ### Regular Radio Interface
-![Screenshot 2025-04-22 214628](https://github.com/user-attachments/assets/a0899888-b840-46c8-9e71-e6cdf84f9e93)
+![Screenshot 2025-05-02 010505](https://github.com/user-attachments/assets/bcbbf505-cf1f-4cc5-a840-95b8ae650c4c)
+
 
 ## Python App Demo
 https://github.com/user-attachments/assets/64dbb72e-c534-4081-8b50-a81ffba903bf
