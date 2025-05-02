@@ -6,6 +6,7 @@ There was no documentation on the remote radio head protocol so I had to reverse
   - [USB to TTL UART Adapter](https://www.amazon.com/dp/B07WX2DSVB) (Any USB serial adapter (UART) should work)
   - [RJ12 Breakout Board](https://www.amazon.com/dp/B00CMOW40Q) (Makes wiring easier)
   - [6 Pins 3 Position DPDT Switch](https://www.amazon.com/dp/B07MV52Z9R) (Optional switch to change TX line between USB UART and Radio Head) (RX line doesn't need a switch)
+  - [74LS157 - Quad 2-Input Multiplexer IC](https://www.amazon.com/dp/B08CCLF9S4?ref=ppx_yo2ov_dt_b_fed_asin_title) (Optional Multiplexer IC, can be used instead of a TX switch [Controlled by UART RTS Pin]) ****See bottom of Setup section
 - Software
   - [Logic](https://www.saleae.com/pages/downloads) software used with the Logic Analyzer to decode packets to/from radio
   - [SerialTool](https://serialtool.com/_en/index.php) software used to capture, modify and replay packets
@@ -32,6 +33,10 @@ There was no documentation on the remote radio head protocol so I had to reverse
 ![RJ12 Pinout at Radio Body](https://github.com/user-attachments/assets/d25ceff1-73d7-40d8-be64-9485357af558)
 
 ![TH9800 Serial USB Closeup](https://github.com/user-attachments/assets/f8352717-4ea2-4836-8ca1-856296ceb011)
+
+## 74LS157 - Quad 2-Input Multiplexer IC Setup
+![74LS157 TX Switch](https://github.com/user-attachments/assets/2a798c99-ae86-4289-a888-a0873f1f708c)
+
 
 ## Screenshots of Python App
 ### Serial Connection Window
