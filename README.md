@@ -16,11 +16,26 @@ There was no documentation on the remote radio head protocol so I had to reverse
 ## Required
 ### Software <a href="https://buymeacoffee.com/sleepyninja" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-green.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" align="right"></a>
 - [Python](https://www.python.org/downloads/) (written in v3.13)
-- Python modules:
-  - Install using (pip install -r requirements.txt)
+- Python modules (Install using "pip install -r requirements.txt" for Windows + Linux x64):
+  - [asyncio](https://pypi.org/project/asyncio/) module
   - [pySerial-asyncio](https://pypi.org/project/pyserial-asyncio/) module
   - [DearPyGui](https://pypi.org/project/dearpygui/) module
+    - If you're running an ARMv7/ARMv8 processor (Common in [SBCs](https://en.wikipedia.org/wiki/Single-board_computer)), you will have to manually build the DearPyGui module.<br>
+        (Grab some coffee, the build can take a while on lower end boards)<br><br>
+         ```
+         apt update
+         apt install git cmake python3 python3-dev libglu1-mesa-dev libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+         git clone --recursive https://github.com/hoffstadt/DearPyGui
+         cd DearPyGui
+         
+         #Build for ARMv7 (Ex: Raspberry Pi 2)
+         python3 -m setup bdist_wheel --plat-name linux_armv7l --dist-dir ../dist
+         pip install ../dist/dearpygui-2.0.0-cp312-cp312-linux_armv7l.whl
 
+         #Build for ARMv8 (Raspberry Pi 3 and above, also works on my Orange Pi Zero 3)
+         python3 -m setup bdist_wheel --plat-name linux_aarch64 --dist-dir ../dist
+         pip install ../dist/dearpygui-2.0.0-cp312-cp312-linux_aarch64.whl
+         ```
 ## How to Run
  - Right click "TH9800_CAT.py" file and start with Python.
  - Open command line, CD to directory, and run "python.exe TH9800_CAT.py".
