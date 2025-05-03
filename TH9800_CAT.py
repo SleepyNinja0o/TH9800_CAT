@@ -300,6 +300,15 @@ class SerialProtocol(asyncio.Protocol):
                 dpg.set_value("rts_text", "Radio Controlled")
                 self.radio.set_dpg_theme(tag="rts_text",color="red")
 
+    def set_dtr(self, state: bool):
+        printd(f"DTR state: {self.transport.serial.dtr} Setting to {state}")
+        self.transport.serial.dtr = state
+
+    def toggle_dtr(self):
+        state = not self.transport.serial.dtr  #Toggle state
+        printd(f"DTR state: {self.transport.serial.dtr} Setting to {state}")
+        self.transport.serial.dtr = state
+
     def reset_ready(self):
         self.ready = asyncio.Event()  # Binds to current event loop
 
@@ -979,6 +988,9 @@ def button_callback(sender, app_data, user_data):
     if label == "Toggle RTS":
         protocol.toggle_rts()
         return
+    elif label == "Toggle DTR":
+        protocol.toggle_dtr()
+        return
     elif label == "Enable Debug":
         debug_label = dpg.get_item_label("debug_button")
         if debug_label == "Enable Debug":
@@ -1063,11 +1075,14 @@ async def connect_serial_async(protocol, com_port, baudrate):
             asyncio.get_event_loop(), lambda: protocol, com_port, baudrate=baudrate
         )
         await protocol.ready.wait()
+        protocol.set_dtr(False)
+        await asyncio.sleep(0.5)
         printd(f"Connected to {com_port} at {baudrate} baud.")
         protocol.set_rts(True) #Enable USB/CAT TX Control
 
         if radio.dpg_enabled == True:
             dpg.configure_item("rts_button", show=True)
+            dpg.configure_item("dtr_button", show=True)
             dpg.configure_item("rts_text", show=True)
             dpg.configure_item("rts_label", show=True)
             dpg.configure_item("radio_window", show=True)
@@ -1118,6 +1133,7 @@ def port_selected_callback(sender, app_data, user_data):
         protocol.transport.close()
         print(f"{com_port} disconnected.\n")
         dpg.configure_item("connect_button", label="Connect")
+        dpg.configure_item("dtr_button", show=False)
         dpg.configure_item("rts_button", show=False)
         dpg.configure_item("rts_text", show=False)
         dpg.configure_item("rts_label", show=False)
@@ -1404,8 +1420,12 @@ def build_gui(protocol):
             baudrate = dpg.get_value("baud_rate")
 
             dpg.add_button(label="Connect", tag="connect_button", indent=5, width=100, callback=port_selected_callback, user_data={"com_port": com_port, "baudrate": baudrate, "protocol": protocol})
-            dpg.add_button(label="Toggle RTS", tag="rts_button", show=True, width=100, callback=button_callback, user_data={"label": "Toggle RTS", "protocol": protocol, "vfo": RADIO_VFO.NONE})
+            dpg.add_button(label="Toggle RTS", tag="rts_button", show=False, width=100, callback=button_callback, user_data={"label": "Toggle RTS", "protocol": protocol, "vfo": RADIO_VFO.NONE})
             dpg.add_button(label="Enable Debug", tag="debug_button", indent=284, show=True, width=120, callback=button_callback, user_data={"label": "Enable Debug", "protocol": protocol, "vfo": RADIO_VFO.NONE})
+
+        #dpg.add_spacer(height=15)
+        with dpg.group(horizontal=True):
+            dpg.add_button(label="Toggle DTR", tag="dtr_button", indent=113, show=False, width=100, callback=button_callback, user_data={"label": "Toggle DTR", "protocol": protocol, "vfo": RADIO_VFO.NONE})
 
         dpg.add_spacer(height=15)
         with dpg.group(horizontal=True):
