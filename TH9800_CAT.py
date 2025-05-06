@@ -303,11 +303,21 @@ class SerialProtocol(asyncio.Protocol):
     def set_dtr(self, state: bool):
         printd(f"DTR state: {self.transport.serial.dtr} Setting to {state}")
         self.transport.serial.dtr = state
+        match state:
+            case True:
+                self.radio.set_dpg_theme(tag="dtr_button",color="green")
+            case False:
+                self.radio.set_dpg_theme(tag="dtr_button",color="red")
 
     def toggle_dtr(self):
         state = not self.transport.serial.dtr  #Toggle state
         printd(f"DTR state: {self.transport.serial.dtr} Setting to {state}")
         self.transport.serial.dtr = state
+        match state:
+            case True:
+                self.radio.set_dpg_theme(tag="dtr_button",color="green")
+            case False:
+                self.radio.set_dpg_theme(tag="dtr_button",color="red")
 
     def reset_ready(self):
         self.ready = asyncio.Event()  # Binds to current event loop
@@ -1075,7 +1085,7 @@ async def connect_serial_async(protocol, com_port, baudrate):
             asyncio.get_event_loop(), lambda: protocol, com_port, baudrate=baudrate
         )
         await protocol.ready.wait()
-        protocol.set_dtr(False)
+        protocol.set_dtr(True)
         await asyncio.sleep(0.5)
         printd(f"Connected to {com_port} at {baudrate} baud.")
         protocol.set_rts(True) #Enable USB/CAT TX Control
@@ -1425,7 +1435,7 @@ def build_gui(protocol):
 
         #dpg.add_spacer(height=15)
         with dpg.group(horizontal=True):
-            dpg.add_button(label="Toggle DTR", tag="dtr_button", indent=113, show=False, width=100, callback=button_callback, user_data={"label": "Toggle DTR", "protocol": protocol, "vfo": RADIO_VFO.NONE})
+            dpg.add_button(label="Toggle DTR", tag="dtr_button", indent=284, show=False, width=100, callback=button_callback, user_data={"label": "Toggle DTR", "protocol": protocol, "vfo": RADIO_VFO.NONE})
 
         dpg.add_spacer(height=15)
         with dpg.group(horizontal=True):
