@@ -1281,7 +1281,7 @@ def tcp_connect_callback(sender, app_data, user_data):
                 loop
             )
 
-            dpg.configure_item("tcp_connect_button", label="Stop Server")
+            dpg.configure_item(tag, label="Stop Server")
             dpg.configure_item("rts_button", show=True)
             dpg.configure_item("dtr_button", show=True)
             
@@ -1289,7 +1289,7 @@ def tcp_connect_callback(sender, app_data, user_data):
             dpg.configure_item("rts_label", show=True)
             
             dpg.configure_item("tcp_connect_button", show=False)
-            dpg.configure_item("tcp_startserver_button", show=True)
+            dpg.configure_item(tag, show=True)
         else:
             if tcpserver != None:
                 try:
@@ -1331,14 +1331,14 @@ def tcp_connect_callback(sender, app_data, user_data):
                 loop
             )
 
-            dpg.configure_item("tcp_connect_button", label="Disconnect Host")
+            dpg.configure_item(tag, label="Disconnect Host")
             dpg.configure_item("rts_button", show=True)
             dpg.configure_item("dtr_button", show=True)
             
             dpg.configure_item("rts_text", show=True)
             dpg.configure_item("rts_label", show=True)
             
-            dpg.configure_item("tcp_connect_button", show=True)
+            dpg.configure_item(tag, show=True)
             dpg.configure_item("tcp_startserver_button", show=False)
         else:
             if tcpclient != None:
