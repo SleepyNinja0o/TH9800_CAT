@@ -17,14 +17,22 @@ debug = False
 protocol = None
 
 tcpclient = None
+tcpclient_server = None
+tcpclient_server_stop = False
+tcpclient_future = None
 tcpclient_ready = False
 tcpclient_passw = ""
 
 tcpserver = None
+tcpserver_server = None
+tcpserver_future = None
 tcpserver_ready = False
 tcpserver_loggedin = False
 tcpserver_login_count = 0
 tcpserver_passw = ""
+
+read_loop_future = None
+write_loop_future = None
 
 def start_event_loop():
     loop.run_forever()
@@ -32,6 +40,7 @@ def start_event_loop():
 threading.Thread(target=start_event_loop, daemon=True).start()
 
 def printd(msg):
+    global debug
     if debug == True:
         print(msg)
 
@@ -1009,6 +1018,7 @@ async def handle_tcpserver_stream(reader, writer):
                     return "returnLogin"
                 if data == tcpserver_passw:
                     tcpserver_loggedin = True
+                    tcpserver_login_count = 0
                     return "Login Successful"
                 else:
                     tcpserver_login_count += 1
@@ -1084,15 +1094,25 @@ async def handle_tcpserver_stream(reader, writer):
                     response += "Ok\n"
                     writer.write(response.encode())
                     await writer.drain()
-                    return
+                    break
                 elif response2 == "returnLogin":
                     response += "Max login attempts reached\n"
                     writer.write(response.encode())
                     await writer.drain()
-                    return
+                    break
                 elif response2 == "Login Successful":
                     writer.write(f"{response2}\n".encode())
                     await writer.drain()
+                    
+                    protocol.set_rts(True)
+                    protocol.radio.connect_process = True
+                    protocol.radio.exe_cmd(cmd=RADIO_TX_CMD.STARTUP)
+                    await asyncio.sleep(0.5)
+                    protocol.radio.exe_cmd(cmd=RADIO_TX_CMD.L_VOLUME_SQUELCH)
+                    await asyncio.sleep(0.5)
+                    protocol.radio.exe_cmd(cmd=RADIO_TX_CMD.R_VOLUME_SQUELCH)
+                    await asyncio.sleep(2)
+                    
                     continue
                 else:
                     response += response2
@@ -1106,9 +1126,15 @@ async def handle_tcpserver_stream(reader, writer):
             await writer.drain()
     except asyncio.CancelledError:
         print(f"Connection to {addr} cancelled.")
+        tcpserver_ready = False
+        tcpserver_loggedin = False
+        tcpserver_login_count = 0
     finally:
         print(f"Connection closed: {addr}")
         try:
+            tcpserver_ready = False
+            tcpserver_loggedin = False
+            tcpserver_login_count = 0
             writer.close()
             if sys.platform != "win32":
                 await writer.wait_closed()
@@ -1117,17 +1143,18 @@ async def handle_tcpserver_stream(reader, writer):
             None
 
 async def start_tcp_server(host='0.0.0.0', port=24, password="", protocol=None):
-    global tcpserver_passw,tcpserver_ready
+    global tcpserver_passw,tcpserver_ready,tcpserver_server
     tcpserver_passw = password
     server = await asyncio.start_server(handle_tcpserver_stream, host, port)
     addr = server.sockets[0].getsockname()
     print(f"CAT TCP server running on {addr}")
     tcpserver_ready = True
+    tcpserver_server = server
     async with server:
         await server.serve_forever()
 
 async def handle_tcpclient_stream(reader, writer, protocol):
-    global tcpclient,tcpclient_passw,tcpclient_ready
+    global tcpclient,tcpclient_passw,tcpclient_ready,tcpclient_server_stop
     
     addr = writer.get_extra_info('peername')
     print(f"Connected to {addr}")
@@ -1165,18 +1192,21 @@ async def handle_tcpclient_stream(reader, writer, protocol):
                 if data != -1:
                     cmd = str(message[1:data])
                     data = str(message[data+1::])
-                    printd(f"CMD RCVD:{cmd}:{data}")
+                    print(f"CMD RCVD:{cmd}:{data}")
                     response = f"CMD{{{cmd}[{data}]}} "
                 else:
                     cmd = str(message[1::])
                     data = ""
-                    printd(f"CMD RCVD:{cmd}")
+                    print(f"CMD RCVD:{cmd}")
                     response = f"CMD{{{cmd}}} "
             elif message[0:3] == "CMD":
                 cmd = message[message.find("{")+1:message.find("}")]
                 data = message.split(" ")[1]
-                printd(f"CMD:{{{cmd}}} DATA:{{{data}}}")
+                print(f"CMD:{{{cmd}}} DATA:{{{data}}}")
                 match cmd:
+                    case "exit":
+                        tcpclient_server_stop = True
+                        break
                     case "rts":
                         match data:
                             case "True":
@@ -1193,28 +1223,32 @@ async def handle_tcpclient_stream(reader, writer, protocol):
                                 protocol.radio.set_dpg_theme(tag="dtr_button",color="red")
                 continue
             else:
-                printd(f"RCVD:{message}")
+                print(f"RCVD:{message}")
                 continue
 
-            match cmd:
-                case "data":
-                    protocol.data_received(data=bytearray.fromhex(data))
-                    print(f"cmd data rcvd: {data}")
-                case "exit":
-                    break
-                case _:
-                    print("Not Found")
-                    continue
+            #match cmd:
+            #    case "data":
+            #        protocol.data_received(data=bytearray.fromhex(data))
+            #        print(f"cmd data rcvd: {data}")
+            #    case "exit":
+            #        break
+            #    case _:
+            #        print("Not Found")
+            #        continue
     except (asyncio.IncompleteReadError, ConnectionResetError):
+        tcpclient = None
+        tcpclient_ready = False
         print("[Protocol] Disconnected.")
     finally:
+        print(f"Connection closed: {addr}")
+        tcpclient = None
         tcpclient_ready = False
         writer.close()
         await writer.wait_closed()
 
 async def start_tcp_client(host='127.0.0.1', port=2235, password="", protocol=None):
-    global tcpclient_ready
-    while True:
+    global tcpclient_ready,tcpclient_server_stop
+    while not tcpclient_server_stop:
         try:
             reader, writer = await asyncio.open_connection(host, port)
             print(f"[Protocol] Connected to {host}:{port}")
@@ -1224,9 +1258,10 @@ async def start_tcp_client(host='127.0.0.1', port=2235, password="", protocol=No
             print(f"[Protocol] Connection failed: {e}")
             await asyncio.sleep(5)
             return
+    tcpclient_server_stop = False
 
 def tcp_connect_callback(sender, app_data, user_data):
-    global tcpclient_passw
+    global tcpclient_passw,tcpserver,tcpclient,tcpserver_future,tcpclient_future,read_loop_future,write_loop_future,tcpclient_server_stop,tcpclient_server,tcpserver_server
     host = dpg.get_value("tcp_host_text")
     port = dpg.get_value("tcp_port_text")
     password = dpg.get_value("tcp_pass_text")
@@ -1237,24 +1272,95 @@ def tcp_connect_callback(sender, app_data, user_data):
         password = ""
     
     if label == "Start Server":
-        asyncio.run_coroutine_threadsafe(
-            start_tcp_server(host=host, port=port, password=password, protocol=protocol),
-            loop
-        )
+        tag = "tcp_startserver_button"
+        label = dpg.get_item_label(tag)
+
+        if label == "Start Server":
+            tcpserver_future = asyncio.run_coroutine_threadsafe(
+                start_tcp_server(host=host, port=port, password=password, protocol=protocol),
+                loop
+            )
+
+            dpg.configure_item("tcp_connect_button", label="Stop Server")
+            dpg.configure_item("rts_button", show=True)
+            dpg.configure_item("dtr_button", show=True)
+            
+            dpg.configure_item("rts_text", show=True)
+            dpg.configure_item("rts_label", show=True)
+            
+            dpg.configure_item("tcp_connect_button", show=False)
+            dpg.configure_item("tcp_startserver_button", show=True)
+        else:
+            if tcpserver != None:
+                try:
+                    tcpserver.close()
+                    tcpserver_ready = False
+                    tcpserver_server.close()
+                    asyncio.run_coroutine_threadsafe(tcpserver_server.wait_closed(), loop)
+                    asyncio.run_coroutine_threadsafe(tcpserver.wait_closed(), loop)
+                    if tcpserver_future != None and not tcpserver_future.done():
+                        tcpserver_future.cancel()
+                except:
+                    None
+            
+            dpg.configure_item("tcp_connect_button", label="Start Server")
+            dpg.configure_item("rts_button", show=False)
+            dpg.configure_item("dtr_button", show=False)
+            
+            dpg.configure_item("rts_text", show=False)
+            dpg.configure_item("rts_label", show=False)
+            
+            dpg.configure_item("tcp_connect_button", show=True)
+            dpg.configure_item("tcp_startserver_button", show=True)
     elif label == "Connect Host":
+        tag = "tcp_connect_button"
+        label = dpg.get_item_label(tag)
         tcpclient_passw = password
-        asyncio.run_coroutine_threadsafe(
-            read_loop(protocol),
-            loop
-        )
-        asyncio.run_coroutine_threadsafe(
-            write_loop(protocol),
-            loop
-        )
-        asyncio.run_coroutine_threadsafe(
-            start_tcp_client(host=host, port=port, password=password, protocol=protocol),
-            loop
-        )
+
+        if label == "Connect Host":
+            read_loop_future = asyncio.run_coroutine_threadsafe(
+                read_loop(protocol),
+                loop
+            )
+            write_loop_future = asyncio.run_coroutine_threadsafe(
+                write_loop(protocol),
+                loop
+            )
+            tcpclient_future = asyncio.run_coroutine_threadsafe(
+                start_tcp_client(host=host, port=port, password=password, protocol=protocol),
+                loop
+            )
+
+            dpg.configure_item("tcp_connect_button", label="Disconnect Host")
+            dpg.configure_item("rts_button", show=True)
+            dpg.configure_item("dtr_button", show=True)
+            
+            dpg.configure_item("rts_text", show=True)
+            dpg.configure_item("rts_label", show=True)
+            
+            dpg.configure_item("tcp_connect_button", show=True)
+            dpg.configure_item("tcp_startserver_button", show=False)
+        else:
+            if tcpclient != None:
+                protocol.transmit_queue.put_nowait(f"!exit".encode())
+                sleep(2)
+            if tcpclient_future != None and not tcpclient_future.done():
+                tcpclient_future.cancel()
+            if read_loop_future != None and not read_loop_future.done():
+                read_loop_future.cancel()
+            if write_loop_future != None and not write_loop_future.done():
+                read_loop_future.cancel()
+
+            dpg.configure_item("tcp_connect_button", label="Connect Host")
+            dpg.configure_item("rts_button", show=False)
+            dpg.configure_item("dtr_button", show=False)
+            
+            dpg.configure_item("rts_text", show=False)
+            dpg.configure_item("rts_label", show=False)
+            
+            dpg.configure_item("tcp_connect_button", show=True)
+            
+            dpg.configure_item("tcp_startserver_button", show=True)
 
 def update_signal(radio: SerialRadio, vfo: RADIO_VFO, s_value: int):
     vfo = vfo.value.lower()
@@ -1762,17 +1868,17 @@ def build_gui(protocol):
             baudrate = dpg.get_value("baud_rate")
 
             dpg.add_button(label="Connect", tag="connect_button", indent=5, width=100, callback=port_selected_callback, user_data={"comport": comport, "baudrate": baudrate, "protocol": protocol})
-            dpg.add_button(label="Toggle RTS", tag="rts_button", show=True, width=100, callback=button_callback, user_data={"label": "Toggle RTS", "protocol": protocol, "vfo": RADIO_VFO.NONE})
+            dpg.add_button(label="Toggle RTS", tag="rts_button", show=False, width=100, callback=button_callback, user_data={"label": "Toggle RTS", "protocol": protocol, "vfo": RADIO_VFO.NONE})
             dpg.add_button(label="Enable Debug", tag="debug_button", indent=284, show=True, width=120, callback=button_callback, user_data={"label": "Enable Debug", "protocol": protocol, "vfo": RADIO_VFO.NONE})
 
         #dpg.add_spacer(height=15)
         with dpg.group(horizontal=True):
-            dpg.add_button(label="Toggle DTR", tag="dtr_button", indent=284, show=False, width=100, callback=button_callback, user_data={"label": "Toggle DTR", "protocol": protocol, "vfo": RADIO_VFO.NONE})
+            dpg.add_button(label="Toggle DTR", tag="dtr_button", indent=284, show=False, width=120, callback=button_callback, user_data={"label": "Toggle DTR", "protocol": protocol, "vfo": RADIO_VFO.NONE})
 
         dpg.add_spacer(height=15)
         with dpg.group(horizontal=True):
-            dpg.add_text("RTS TX: ", indent=5, tag="rts_label", show=True)
-            dpg.add_text("USB Controlled", tag="rts_text", show=True)
+            dpg.add_text("RTS TX: ", indent=5, tag="rts_label", show=False)
+            dpg.add_text("USB Controlled", tag="rts_text", show=False)
             protocol.radio.set_dpg_theme(tag="rts_text",color="green")
 
         dpg.add_spacer(height=50)
@@ -1795,14 +1901,14 @@ def build_gui(protocol):
 
         dpg.add_spacer(height=10)
         with dpg.group(horizontal=True):
-            dpg.add_button(label="Connect Host", tag="tcp_connect_button", indent=5, width=110, callback=tcp_connect_callback, user_data={"protocol": protocol, "label": "Connect Host"})
-            dpg.add_button(label="Start Server", tag="tcp_startserver_button", width=110, callback=tcp_connect_callback, user_data={"protocol": protocol, "label": "Start Server"})
+            dpg.add_button(label="Connect Host", tag="tcp_connect_button", indent=5, width=120, callback=tcp_connect_callback, user_data={"protocol": protocol, "label": "Connect Host"})
+            dpg.add_button(label="Start Server", tag="tcp_startserver_button", width=120, callback=tcp_connect_callback, user_data={"protocol": protocol, "label": "Start Server"})
 
         if len(available_ports) == 0:
             dpg_notification_window(title="Error", message="No COM ports available for connection!")
 
 async def main():
-    global debug,tcpserver_ready,protocol
+    global debug,tcpserver_ready,protocol,tcpserver_future
     parser = argparse.ArgumentParser(description="Example Python app with command-line arguments.")
     parser.add_argument('-b', '--baudrate', type=str, help='Send commands')
     parser.add_argument('-c', '--comport', type=str, help='Send commands')
@@ -1831,7 +1937,7 @@ async def main():
                 threading.Thread(target=start_event_loop, daemon=True).start()
                 protocol.reset_ready()
 
-            asyncio.run_coroutine_threadsafe(
+            tcpserver_future = asyncio.run_coroutine_threadsafe(
                 start_tcp_server(host="127.0.0.1", port="24", password=password, protocol=protocol),
                 loop
             )
