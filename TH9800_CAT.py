@@ -1630,7 +1630,7 @@ def build_gui(protocol):
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_Text, (37, 37, 38, 255)) #(255, 0, 0, 255) (37, 37, 38, 255)
 
-    font_dir = os.path.join(os.path.dirname(__file__), "assets", "fonts")
+    font_dir = os.path.join(os.path.dirname(__file__), "Assets", "Fonts")
     bold_font_path = os.path.join(font_dir, "DejaVuSans-Bold.ttf")
 
     with dpg.font_registry():
