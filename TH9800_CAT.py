@@ -1910,9 +1910,11 @@ def build_gui(protocol):
 async def main():
     global debug,tcpserver_ready,protocol,tcpserver_future
     parser = argparse.ArgumentParser(description="Example Python app with command-line arguments.")
-    parser.add_argument('-b', '--baudrate', type=str, help='Send commands')
-    parser.add_argument('-c', '--comport', type=str, help='Send commands')
-    parser.add_argument('-p', '--password', type=str, help='Server login password')
+    parser.add_argument('-b', '--baudrate', type=str, help='Radio Baudrate')
+    parser.add_argument('-c', '--comport', type=str, help='Radio COM Port')
+    parser.add_argument('-sH', '--server-host-ip', type=str, help='Server hostname/ip')
+    parser.add_argument('-sP', '--server-port', type=str, help='Server port')
+    parser.add_argument('-p', '--server-password', type=str, help='Server login password')
     parser.add_argument('-s', '--start-server', action="store_true", help='Start server')
     args = parser.parse_args()
 
@@ -1922,8 +1924,8 @@ async def main():
 
     if args.start_server:
         if args.comport and args.baudrate:
-            if args.password:
-                password = args.password
+            if args.server_password:
+                password = args.server_password
             else:
                 print("*Enter password for CAT server*")
                 password = getpass()
@@ -1938,7 +1940,7 @@ async def main():
                 protocol.reset_ready()
 
             tcpserver_future = asyncio.run_coroutine_threadsafe(
-                start_tcp_server(host="127.0.0.1", port="24", password=password, protocol=protocol),
+                start_tcp_server(host=args.server_host_ip, port=args.server_port, password=password, protocol=protocol),
                 loop
             )
 
