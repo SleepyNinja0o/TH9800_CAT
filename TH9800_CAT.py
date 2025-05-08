@@ -1912,9 +1912,10 @@ async def main():
     parser = argparse.ArgumentParser(description="Example Python app with command-line arguments.")
     parser.add_argument('-b', '--baudrate', type=str, help='Radio Baudrate')
     parser.add_argument('-c', '--comport', type=str, help='Radio COM Port')
+    parser.add_argument('-l', '--list-comports', action="store_true", help='List available COM ports')
+    parser.add_argument('-p', '--server-password', type=str, help='Server login password')
     parser.add_argument('-sH', '--server-host-ip', type=str, help='Server hostname/ip')
     parser.add_argument('-sP', '--server-port', type=str, help='Server port')
-    parser.add_argument('-p', '--server-password', type=str, help='Server login password')
     parser.add_argument('-s', '--start-server', action="store_true", help='Start server')
     args = parser.parse_args()
 
@@ -1922,6 +1923,11 @@ async def main():
     protocol = SerialProtocol(radio)
     radio.protocol = protocol
 
+    if args.list_comports:
+        available_ports = serial.tools.list_ports.comports()
+        for port in available_ports:
+            print(f"{port.device}: {port.description}")
+        return
     if args.start_server:
         if args.comport and args.baudrate:
             if args.server_password:
