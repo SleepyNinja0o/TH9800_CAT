@@ -1808,7 +1808,7 @@ def build_gui(protocol):
 
             # Center Menu Button
             label = "."
-            dpg.add_button(label=label, width=40, height=20, callback=button_callback, user_data={"label": "MENU", "protocol": protocol, "vfo": RADIO_VFO.NONE})
+            dpg.add_button(label=label, width=40, height=20, callback=button_callback, user_data={"label": "SET", "protocol": protocol, "vfo": RADIO_VFO.NONE})
 
             dpg.add_spacer(width=10)
 
@@ -1831,7 +1831,7 @@ def build_gui(protocol):
 
             # Center Menu Button
             label = ".2"
-            dpg.add_button(label=label, width=40, height=20, callback=button_callback, user_data={"label": "MENU2", "protocol": protocol, "vfo": RADIO_VFO.NONE})
+            dpg.add_button(label=label, width=40, height=20, callback=button_callback, user_data={"label": "SET2", "protocol": protocol, "vfo": RADIO_VFO.NONE})
 
             dpg.add_spacer(width=10)
 
