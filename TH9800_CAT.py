@@ -1685,15 +1685,19 @@ def handle_key_press(sender, app_data):
         case dpg.mvKey_Up:
             vol = radio.vfo_memory[active_vfo]['volume'] + 2
             dpg.set_value(f"slider_{str(active_vfo).lower()}_volume",vol)
+            radio.vfo_memory[active_vfo]['volume'] = vol
         case dpg.mvKey_Down:
             vol = radio.vfo_memory[active_vfo]['volume'] - 2
             dpg.set_value(f"slider_{str(active_vfo).lower()}_volume",vol)
+            radio.vfo_memory[active_vfo]['volume'] = vol
         case dpg.mvKey_Left:
             sq = radio.vfo_memory[active_vfo]['squelch'] - 2
             dpg.set_value(f"slider_{str(active_vfo).lower()}_squelch",sq)
+            radio.vfo_memory[active_vfo]['squelch'] = sq
         case dpg.mvKey_Right:
             sq = radio.vfo_memory[active_vfo]['squelch'] + 2
             dpg.set_value(f"slider_{str(active_vfo).lower()}_squelch",sq)
+            radio.vfo_memory[active_vfo]['squelch'] = sq
         case _:
             user_data = None
 
