@@ -188,7 +188,6 @@ class TCP:
         finally:
             print(f"Connection closed: {addr}")
             try:
-                self.tcpserver_ready = False
                 self.tcpserver_loggedin = False
                 self.tcpserver_login_count = 0
 
@@ -208,6 +207,7 @@ class TCP:
         async with server:
             await server.serve_forever()
         print("Server has stopped...")
+        self.tcpserver_ready = False
 
     async def handle_tcpclient_stream(self, reader, writer, protocol):
         addr = writer.get_extra_info('peername')
@@ -383,6 +383,15 @@ class SerialRadio:
                 self.vfo_memory[vfo]['icons'].update({f"{icon.name}": False})
             self.vfo_memory[vfo]['icons']['SIGNAL'] = 0
 
+    def get_vfo(self, vfo: str):
+        match vfo.upper():
+            case "L":
+                return RADIO_VFO.LEFT
+            case "R":
+                return RADIO_VFO.RIGHT
+            case _:
+                return RADIO_VFO.LEFT
+
     def get_cmd_pkt(self, cmd: RADIO_TX_CMD, payload: bytes = None):
         cmd_name = cmd.name
         cmd_data = cmd.data
@@ -495,34 +504,32 @@ class SerialRadio:
         if self.dpg_enabled == True:
             self.set_dpg_theme(tag=tag,color=color)
 
-    def set_volume(self, vfo: RADIO_VFO, vol: int = 25):
+    def set_volume(self, vfo: str, vol: int = 25):
         if vol < 0:
             vol = 0
         elif vol > 100:
             vol = 100
 
-        vfo2 = str(vfo)
-        dpg.set_value(f"slider_{vfo2.lower()}_volume",vol)
+        dpg.set_value(f"slider_{vfo.lower()}_volume",vol)
         payload = self.packet.vol_sq_to_packet(value=vol)
-        cmd = RADIO_TX_CMD[f"{vfo2}_VOLUME"]
-        self.vfo_memory[vfo]['volume'] = vol
+        cmd = RADIO_TX_CMD[f"{vfo}_VOLUME"]
+        self.vfo_memory[self.get_vfo(vfo=vfo)]['volume'] = vol
         
-        printd(f"Set {vfo2}_VOLUME: {str(vol)}")
+        printd(f"Set {vfo}_VOLUME: {str(vol)}")
         self.exe_cmd(cmd=cmd, payload=payload)
 
-    def set_squelch(self, vfo: RADIO_VFO, sq: int = 25):
+    def set_squelch(self, vfo: str, sq: int = 25):
         if sq < 0:
             sq = 0
         elif sq > 100:
             sq = 100
 
-        vfo2 = str(vfo)
-        dpg.set_value(f"slider_{vfo2.lower()}_squelch",sq)
+        dpg.set_value(f"slider_{vfo.lower()}_squelch",sq)
         payload = self.packet.vol_sq_to_packet(value=sq)
-        cmd = RADIO_TX_CMD[f"{vfo2}_SQUELCH"]
-        self.vfo_memory[vfo]['squelch'] = sq
+        cmd = RADIO_TX_CMD[f"{vfo}_SQUELCH"]
+        self.vfo_memory[self.get_vfo(vfo=vfo)]['squelch'] = sq
         
-        printd(f"Set {vfo2}_SQUELCH: {str(sq)}")
+        printd(f"Set {vfo}_SQUELCH: {str(sq)}")
         self.exe_cmd(cmd=cmd, payload=payload)
 
     def get_freq(self, vfo: RADIO_VFO):
@@ -1676,17 +1683,17 @@ def handle_key_press(sender, app_data):
         case dpg.mvKey_Spacebar:
             user_data={"label": "PTT", "protocol": protocol, "vfo": RADIO_VFO.MIC}
         case dpg.mvKey_Up:
-            vol = radio.vfo_memory[active_vfo]['volume'] + 5
-            radio.set_volume(vfo=active_vfo,vol=vol)
+            vol = radio.vfo_memory[active_vfo]['volume'] + 2
+            dpg.set_value(f"slider_{str(active_vfo).lower()}_volume",vol)
         case dpg.mvKey_Down:
-            vol = radio.vfo_memory[active_vfo]['volume'] - 5
-            radio.set_volume(vfo=active_vfo,vol=vol)
+            vol = radio.vfo_memory[active_vfo]['volume'] - 2
+            dpg.set_value(f"slider_{str(active_vfo).lower()}_volume",vol)
         case dpg.mvKey_Left:
-            sq = radio.vfo_memory[active_vfo]['squelch'] - 5
-            radio.set_squelch(vfo=active_vfo,sq=sq)
+            sq = radio.vfo_memory[active_vfo]['squelch'] - 2
+            dpg.set_value(f"slider_{str(active_vfo).lower()}_squelch",sq)
         case dpg.mvKey_Right:
-            sq = radio.vfo_memory[active_vfo]['squelch'] + 5
-            radio.set_squelch(vfo=active_vfo,sq=sq)
+            sq = radio.vfo_memory[active_vfo]['squelch'] + 2
+            dpg.set_value(f"slider_{str(active_vfo).lower()}_squelch",sq)
         case _:
             user_data = None
 
