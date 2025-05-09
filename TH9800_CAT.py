@@ -188,7 +188,6 @@ class TCP:
         finally:
             print(f"Connection closed: {addr}")
             try:
-                
                 self.tcpserver.close()
                 self.tcpserver_ready = False
                 self.tcpserver_loggedin = False
@@ -1482,14 +1481,14 @@ def button_callback(sender, app_data, user_data):
             else:
                 radio.mic_ptt = False
                 radio.vfo_memory[radio.vfo_memory['vfo_active']]['ptt'] = 0
-                
         case "*":
             label = "STAR"
         case "#":
             label = "POUND"
-            
 
     if vfo == RADIO_VFO.LEFT or vfo == RADIO_VFO.RIGHT or vfo == RADIO_VFO.MIC or vfo == RADIO_VFO.NONE:
+        if len(label) > 2 and label[-1] == "2":
+            label = label.replace("2","_HOLD")
         radio.exe_cmd(cmd=RADIO_TX_CMD[f"{vfo_name}_{label}"])
     else:
         match label:
@@ -1809,7 +1808,7 @@ def build_gui(protocol):
 
             # Center Menu Button
             label = "."
-            dpg.add_button(label=".", width=40, height=20, callback=button_callback, user_data={"label": "MENU", "protocol": protocol, "vfo": RADIO_VFO.NONE})
+            dpg.add_button(label=label, width=40, height=20, callback=button_callback, user_data={"label": "MENU", "protocol": protocol, "vfo": RADIO_VFO.NONE})
 
             dpg.add_spacer(width=10)
 
@@ -1819,6 +1818,26 @@ def build_gui(protocol):
 
             dpg.add_text("<KEY2", tag="icon_key2")#, show=False)
             dpg.bind_item_theme("icon_key2", black_text_theme)
+        #dpg.add_spacer(height=5)
+
+        # === VFO Control Buttons + Center Menu Button (HOLD Key Function) ===
+        with dpg.group(horizontal=True):
+            # VFO Left Buttons
+            dpg.add_spacer(width=10)
+            for label in ["LOW2", "V/M2", "HM2", "SCN2"]:
+                dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": label.replace("/",""), "protocol": protocol, "vfo": RADIO_VFO.LEFT})
+
+            dpg.add_spacer(width=10)
+
+            # Center Menu Button
+            label = ".2"
+            dpg.add_button(label=label, width=40, height=20, callback=button_callback, user_data={"label": "MENU2", "protocol": protocol, "vfo": RADIO_VFO.NONE})
+
+            dpg.add_spacer(width=10)
+
+            # VFO Right Buttons
+            for label in ["LOW2", "V/M2", "HM2", "SCN2"]:
+                dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": label.replace("/",""), "protocol": protocol, "vfo": RADIO_VFO.RIGHT})
         dpg.add_spacer(height=5)
         
         with dpg.group(horizontal=True):
@@ -1830,7 +1849,7 @@ def build_gui(protocol):
             dpg.add_spacer(width=21)
             dpg.add_progress_bar(default_value=0.0, tag="icon_r_signal", overlay="S0", width=185)
 
-        dpg.add_spacer(height=50)
+        dpg.add_spacer(height=30)
         dpg.add_separator()
         dpg.add_spacer(height=10)
 

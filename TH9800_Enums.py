@@ -127,6 +127,7 @@ class RADIO_TX_CMD(Enum):
     
     #Menu Button
     N_MENU = (bytearray([0x00,0x20]),3,5)
+    N_MENU_HOLD = (bytearray([0x01,0x20]),3,5)
     
     #Left/Right VOL SQ CMDs used during radio startup
     L_VOLUME_SQUELCH = (bytearray([0x01,0xEB,0x00,0x02,0xEB,0x00]),5,11)
