@@ -188,20 +188,13 @@ class TCP:
         finally:
             print(f"Connection closed: {addr}")
             try:
-                self.tcpserver.close()
                 self.tcpserver_ready = False
                 self.tcpserver_loggedin = False
                 self.tcpserver_login_count = 0
-                self.tcpserver_server.close()
-                asyncio.run_coroutine_threadsafe(self.tcpserver_server.wait_closed(), loop)
-                asyncio.run_coroutine_threadsafe(self.tcpserver.wait_closed(), loop)
-                if self.tcpserver_future != None and not self.tcpserver_future.done():
-                    self.tcpserver_future.cancel()
-                
+
                 writer.close()
-                if sys.platform != "win32":
+                if sys.platform != "win32": # On Windows, skip wait_closed entirely to avoid WinError 64
                     await writer.wait_closed()
-                # On Windows, skip wait_closed entirely to avoid WinError 64
             except:
                 None
 
@@ -214,6 +207,7 @@ class TCP:
         self.tcpserver_server = server
         async with server:
             await server.serve_forever()
+        print("Server has stopped...")
 
     async def handle_tcpclient_stream(self, reader, writer, protocol):
         addr = writer.get_extra_info('peername')
@@ -358,6 +352,8 @@ class SerialRadio:
                 "operating_mode": int(RADIO_VFO_TYPE.MEMORY),   # 0 = VFO mode, 1 = Memory mode
                 "width": 2500,          # 2.5 kHz
                 "ptt": 0,               # PTT off
+                "volume": 25,
+                "squelch": 25,
                 "icons": {}
             },
             RADIO_VFO.RIGHT:{
@@ -368,6 +364,8 @@ class SerialRadio:
                 "operating_mode": int(RADIO_VFO_TYPE.MEMORY),   # 0 = VFO mode, 1 = Memory mode
                 "width": 2500,          # 2.5 kHz
                 "ptt": 0,               # PTT off
+                "volume": 25,
+                "squelch": 25,
                 "icons": {}
             }
         }
@@ -498,17 +496,33 @@ class SerialRadio:
             self.set_dpg_theme(tag=tag,color=color)
 
     def set_volume(self, vfo: RADIO_VFO, vol: int = 25):
-        vfo = str(vfo)
+        if vol < 0:
+            vol = 0
+        elif vol > 100:
+            vol = 100
+
+        vfo2 = str(vfo)
+        dpg.set_value(f"slider_{vfo2.lower()}_volume",vol)
         payload = self.packet.vol_sq_to_packet(value=vol)
-        cmd = RADIO_TX_CMD[f"{vfo}_VOLUME"]
+        cmd = RADIO_TX_CMD[f"{vfo2}_VOLUME"]
+        self.vfo_memory[vfo]['volume'] = vol
         
+        printd(f"Set {vfo2}_VOLUME: {str(vol)}")
         self.exe_cmd(cmd=cmd, payload=payload)
 
     def set_squelch(self, vfo: RADIO_VFO, sq: int = 25):
-        vfo = str(vfo)
+        if sq < 0:
+            sq = 0
+        elif sq > 100:
+            sq = 100
+
+        vfo2 = str(vfo)
+        dpg.set_value(f"slider_{vfo2.lower()}_squelch",sq)
         payload = self.packet.vol_sq_to_packet(value=sq)
-        cmd = RADIO_TX_CMD[f"{vfo}_SQUELCH"]
+        cmd = RADIO_TX_CMD[f"{vfo2}_SQUELCH"]
+        self.vfo_memory[vfo]['squelch'] = sq
         
+        printd(f"Set {vfo2}_SQUELCH: {str(sq)}")
         self.exe_cmd(cmd=cmd, payload=payload)
 
     def get_freq(self, vfo: RADIO_VFO):
@@ -1651,6 +1665,34 @@ async def write_loop(protocol: SerialProtocol):
             except:
                 None
 
+def handle_key_press(sender, app_data):
+    global protocol
+    user_data = None
+    radio = protocol.radio
+    active_vfo = radio.vfo_memory["vfo_active"]
+    printd(f"Key Pressed: {app_data}")  # app_data is the key code
+
+    match app_data:
+        case dpg.mvKey_Spacebar:
+            user_data={"label": "PTT", "protocol": protocol, "vfo": RADIO_VFO.MIC}
+        case dpg.mvKey_Up:
+            vol = radio.vfo_memory[active_vfo]['volume'] + 5
+            radio.set_volume(vfo=active_vfo,vol=vol)
+        case dpg.mvKey_Down:
+            vol = radio.vfo_memory[active_vfo]['volume'] - 5
+            radio.set_volume(vfo=active_vfo,vol=vol)
+        case dpg.mvKey_Left:
+            sq = radio.vfo_memory[active_vfo]['squelch'] - 5
+            radio.set_squelch(vfo=active_vfo,sq=sq)
+        case dpg.mvKey_Right:
+            sq = radio.vfo_memory[active_vfo]['squelch'] + 5
+            radio.set_squelch(vfo=active_vfo,sq=sq)
+        case _:
+            user_data = None
+
+    if user_data != None:
+        button_callback(sender=None,app_data=None,user_data=user_data)
+
 def build_gui(protocol):
     ports = []
     available_ports = serial.tools.list_ports.comports()
@@ -1771,10 +1813,10 @@ def build_gui(protocol):
 
         dpg.add_spacer(height=3)
 
-        # === VFO Volume Slider ===
+        # === VFO Volume + Squelch Sliders ===
         with dpg.group(horizontal=True):
             dpg.add_text("SQ:",indent=32)
-            dpg.add_slider_int(width=100, default_value=25, max_value=100, callback=sq_callback, user_data={"label": "SQ", "protocol": protocol, "vfo": RADIO_VFO.LEFT})
+            dpg.add_slider_int(tag="slider_l_squelch", width=100, default_value=25, max_value=100, callback=sq_callback, user_data={"label": "SQ", "protocol": protocol, "vfo": RADIO_VFO.LEFT})
             dpg.add_spacer(width=61)
             dpg.add_text("APO", tag="icon_apo")#, show=False)
             dpg.bind_item_theme("icon_apo", black_text_theme)
@@ -1782,18 +1824,17 @@ def build_gui(protocol):
             #dpg.bind_item_theme("icon_lock", black_text_theme)
             dpg.add_spacer(width=32)
             dpg.add_text("SQ:")
-            dpg.add_slider_int(width=100, default_value=25, max_value=100, callback=sq_callback, user_data={"label": "SQ", "protocol": protocol, "vfo": RADIO_VFO.RIGHT})
+            dpg.add_slider_int(tag="slider_r_squelch", width=100, default_value=25, max_value=100, callback=sq_callback, user_data={"label": "SQ", "protocol": protocol, "vfo": RADIO_VFO.RIGHT})
         
-        # === VFO Squelch Slider ===
         with dpg.group(horizontal=True):
             dpg.add_text("VOL:",indent=25)
-            dpg.add_slider_int(width=100, default_value=25, max_value=100, callback=vol_callback, user_data={"label": "VOL", "protocol": protocol, "vfo": RADIO_VFO.LEFT})
+            dpg.add_slider_int(tag="slider_l_volume", width=100, default_value=25, max_value=100, callback=vol_callback, user_data={"label": "VOL", "protocol": protocol, "vfo": RADIO_VFO.LEFT})
             dpg.add_spacer(width=58)
             dpg.add_text("LOCK", tag="icon_lock")#, show=False)
             dpg.bind_item_theme("icon_lock", black_text_theme)
             dpg.add_spacer(width=21)
             dpg.add_text("VOL:")
-            dpg.add_slider_int(width=100, default_value=25, max_value=100, callback=vol_callback, user_data={"label": "VOL", "protocol": protocol, "vfo": RADIO_VFO.RIGHT})
+            dpg.add_slider_int(tag="slider_r_volume", width=100, default_value=25, max_value=100, callback=vol_callback, user_data={"label": "VOL", "protocol": protocol, "vfo": RADIO_VFO.RIGHT})
         
         dpg.add_spacer(height=15)
 
@@ -1868,7 +1909,7 @@ def build_gui(protocol):
             for label in ["4", "5", "6", "B"]:
                 dpg.add_button(label=label, width=40, callback=button_callback, user_data={"label": label, "protocol": protocol, "vfo": RADIO_VFO.MIC})
             dpg.add_spacer(width=130)
-            dpg.add_button(label="Get State", tag="getstate_button", width=80, show=False, callback=button_callback, user_data={"label": "Get State", "protocol": protocol,"vfo": RADIO_VFO.NONE})
+            dpg.add_button(label="Get State", tag="getstate_button", width=80, show=True, callback=button_callback, user_data={"label": "Get State", "protocol": protocol,"vfo": RADIO_VFO.NONE})
         with dpg.group(horizontal=True):
             dpg.add_spacer(width=mic_spacer_width)
             for label in ["7", "8", "9", "C"]:
@@ -1958,6 +1999,9 @@ def build_gui(protocol):
 
         if len(available_ports) == 0:
             dpg_notification_window(title="Error", message="No COM ports available for connection!")
+        
+    with dpg.handler_registry():
+        dpg.add_key_press_handler(callback=handle_key_press)
 
 async def main():
     global TCP,debug,protocol,is_user_admin
