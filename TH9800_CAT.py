@@ -1608,6 +1608,10 @@ async def connect_serial_async(protocol, comport, baudrate):
         return None
 
 def port_selected_callback(sender, app_data, user_data):
+    if len(user_data["available_ports"]) == 0:
+        dpg_notification_window(title="Error", message="No COM ports available for connection!")
+        return
+
     label = dpg.get_item_label("connect_button")
     
     protocol = user_data['protocol']
@@ -1978,7 +1982,7 @@ def build_gui(protocol):
             comport = dpg.get_value("comport")
             baudrate = dpg.get_value("baud_rate")
 
-            dpg.add_button(label="Connect", tag="connect_button", indent=5, width=100, callback=port_selected_callback, user_data={"comport": comport, "baudrate": baudrate, "protocol": protocol})
+            dpg.add_button(label="Connect", tag="connect_button", indent=5, width=100, callback=port_selected_callback, user_data={"available_ports": available_ports, "comport": comport, "baudrate": baudrate, "protocol": protocol})
             dpg.add_button(label="Toggle RTS", tag="rts_button", show=False, width=100, callback=button_callback, user_data={"label": "Toggle RTS", "protocol": protocol, "vfo": RADIO_VFO.NONE})
             dpg.add_button(label="Enable Debug", tag="debug_button", indent=284, show=True, width=120, callback=button_callback, user_data={"label": "Enable Debug", "protocol": protocol, "vfo": RADIO_VFO.NONE})
 
@@ -2014,9 +2018,6 @@ def build_gui(protocol):
         with dpg.group(horizontal=True):
             dpg.add_button(label="Connect Host", tag="tcp_connect_button", indent=5, width=120, callback=tcp_connect_callback, user_data={"protocol": protocol, "label": "Connect Host"})
             dpg.add_button(label="Start Server", tag="tcp_startserver_button", width=120, callback=tcp_connect_callback, user_data={"protocol": protocol, "label": "Start Server"})
-
-        if len(available_ports) == 0:
-            dpg_notification_window(title="Error", message="No COM ports available for connection!")
         
     with dpg.handler_registry():
         dpg.add_key_press_handler(callback=handle_key_press)
