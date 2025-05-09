@@ -392,6 +392,15 @@ class SerialRadio:
             case _:
                 return RADIO_VFO.LEFT
 
+    def get_vfo_str(self, vfo: RADIO_VFO):
+        match vfo:
+            case RADIO_VFO.LEFT:
+                return "L"
+            case RADIO_VFO.RIGHT:
+                return "R"
+            case _:
+                return "L"
+
     def get_cmd_pkt(self, cmd: RADIO_TX_CMD, payload: bytes = None):
         cmd_name = cmd.name
         cmd_data = cmd.data
@@ -504,12 +513,13 @@ class SerialRadio:
         if self.dpg_enabled == True:
             self.set_dpg_theme(tag=tag,color=color)
 
-    def set_volume(self, vfo: str, vol: int = 25):
+    def set_volume(self, vfo: RADIO_VFO, vol: int = 25):
         if vol < 0:
             vol = 0
         elif vol > 100:
             vol = 100
 
+        vfo = str(vfo)
         dpg.set_value(f"slider_{vfo.lower()}_volume",vol)
         payload = self.packet.vol_sq_to_packet(value=vol)
         cmd = RADIO_TX_CMD[f"{vfo}_VOLUME"]
@@ -518,12 +528,13 @@ class SerialRadio:
         printd(f"Set {vfo}_VOLUME: {str(vol)}")
         self.exe_cmd(cmd=cmd, payload=payload)
 
-    def set_squelch(self, vfo: str, sq: int = 25):
+    def set_squelch(self, vfo: RADIO_VFO, sq: int = 25):
         if sq < 0:
             sq = 0
         elif sq > 100:
             sq = 100
 
+        vfo = str(vfo)
         dpg.set_value(f"slider_{vfo.lower()}_squelch",sq)
         payload = self.packet.vol_sq_to_packet(value=sq)
         cmd = RADIO_TX_CMD[f"{vfo}_SQUELCH"]
@@ -1520,7 +1531,7 @@ def button_callback(sender, app_data, user_data):
 
 def sq_callback(sender, app_data, user_data):
     label = user_data["label"].replace("/","")
-    vfo = user_data["vfo"].value
+    vfo = user_data["vfo"]
     protocol = user_data["protocol"]
     radio = protocol.radio
     
@@ -1528,7 +1539,7 @@ def sq_callback(sender, app_data, user_data):
 
 def vol_callback(sender, app_data, user_data):
     label = user_data["label"].replace("/","")
-    vfo = user_data["vfo"].value
+    vfo = user_data["vfo"]
     protocol = user_data["protocol"]
     radio = protocol.radio
     
@@ -1684,20 +1695,16 @@ def handle_key_press(sender, app_data):
             user_data={"label": "PTT", "protocol": protocol, "vfo": RADIO_VFO.MIC}
         case dpg.mvKey_Up:
             vol = radio.vfo_memory[active_vfo]['volume'] + 2
-            dpg.set_value(f"slider_{str(active_vfo).lower()}_volume",vol)
-            radio.vfo_memory[active_vfo]['volume'] = vol
+            radio.set_volume(vfo=active_vfo,vol=vol)
         case dpg.mvKey_Down:
             vol = radio.vfo_memory[active_vfo]['volume'] - 2
-            dpg.set_value(f"slider_{str(active_vfo).lower()}_volume",vol)
-            radio.vfo_memory[active_vfo]['volume'] = vol
+            radio.set_volume(vfo=active_vfo,vol=vol)
         case dpg.mvKey_Left:
             sq = radio.vfo_memory[active_vfo]['squelch'] - 2
-            dpg.set_value(f"slider_{str(active_vfo).lower()}_squelch",sq)
-            radio.vfo_memory[active_vfo]['squelch'] = sq
+            radio.set_squelch(vfo=active_vfo,sq=sq)
         case dpg.mvKey_Right:
             sq = radio.vfo_memory[active_vfo]['squelch'] + 2
-            dpg.set_value(f"slider_{str(active_vfo).lower()}_squelch",sq)
-            radio.vfo_memory[active_vfo]['squelch'] = sq
+            radio.set_squelch(vfo=active_vfo,sq=sq)
         case _:
             user_data = None
 
