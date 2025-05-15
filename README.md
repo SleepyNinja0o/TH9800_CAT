@@ -49,7 +49,7 @@ There was no documentation on the remote radio head protocol so I had to reverse
 
 ![TH9800 Serial USB Closeup](https://github.com/user-attachments/assets/f8352717-4ea2-4836-8ca1-856296ceb011)
 
-## 74LS157 - Quad 2-Input Multiplexer IC Setup
+## 74LS157 - Quad 2-Input Multiplexer IC Setup (Software TX Switch)
 ![74LS157 TX Switch](https://github.com/user-attachments/assets/2a798c99-ae86-4289-a888-a0873f1f708c)
 
 ## Screenshots of Python App
