@@ -3,11 +3,12 @@ from TH9800_Enums import *
 from time import sleep
 import dearpygui.dearpygui as dpg
 import serial.tools.list_ports,serial_asyncio,asyncio,threading
-import argparse,platform,ctypes,re,os
+import logging,datetime,argparse,platform,ctypes,re,os
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 debug = False
+log = False
 
 protocol = None
 read_loop_future = None
@@ -944,7 +945,7 @@ class SerialPacket:
                     sig = sig - 0x80
                     update_signal(radio=self.radio,vfo=RADIO_VFO.RIGHT,s_value=sig)
                 else:
-                    printd("OSIG:",sig)
+                    printd(f"OSIG: {sig}")
             case RADIO_RX_CMD.ICON_DOT_1ST.value:
                 radio_text_fast = False
                 radio_text = self.radio.vfo_text
@@ -1014,7 +1015,7 @@ class SerialPacket:
                     case 0x20:
                         self.protocol.send_packet(self.create_tx_packet(payload=bytes([0xA0,0x18,0x02])))
             case _:
-                printd(F"Unkown pkt: {packet.hex().upper()}")
+                printd(f"Unkown pkt: {packet.hex().upper()}")
 
     def process_display_packet(self, packet: bytes):
         match packet[0]:
@@ -1033,7 +1034,7 @@ class SerialPacket:
             case _:
                 self.radio.vfo_memory[vfo]['icons']['SIGNAL'] = packet[1]
                 #self.radio.icons[vfo]['SIGNAL'] = packet[1]
-                printd(F"SIGNAL PACKET! SIG:{packet[1]}")
+                printd(f"SIGNAL PACKET! SIG:{packet[1]}")
         for x in range(2,6+1):
             icon_byte = packet[x]
             icon_map = self.display_packets_icon_map[x]
@@ -1427,14 +1428,16 @@ def tcp_connect_callback(sender, app_data, user_data):
             dpg.configure_item("tcp_startserver_button", show=True)
 
 def update_signal(radio: SerialRadio, vfo: RADIO_VFO, s_value: int):
-    vfo = vfo.value.lower()
+    vfo2 = vfo.value.lower()
+    if log == True:
+        logging.info(f'{str(vfo)} sig: {str(s_value)}')
     if s_value == 0:
         percent = 0
     else:
         percent = (s_value - 1) / 8  # Map S1–S9 to 0.0–1.0 range
     if radio.dpg_enabled == True:
-        dpg.set_value(f"icon_{vfo}_signal", percent)
-        dpg.configure_item(f"icon_{vfo}_signal",overlay=f"S{s_value}")
+        dpg.set_value(f"icon_{vfo2}_signal", percent)
+        dpg.configure_item(f"icon_{vfo2}_signal",overlay=f"S{s_value}")
 
 def refresh_comports_callback(sender, app_data, user_data):
     ports = []
@@ -2023,12 +2026,13 @@ def build_gui(protocol):
         dpg.add_key_press_handler(callback=handle_key_press)
 
 async def main():
-    global TCP,debug,protocol,is_user_admin
+    global TCP,debug,log,protocol,is_user_admin
     parser = argparse.ArgumentParser(description="Example Python app with command-line arguments.")
     parser.add_argument('-b', '--baudrate', type=str, help='Radio Baudrate')
     parser.add_argument('-c', '--comport', type=str, help='Radio COM Port')
     parser.add_argument('-d', '--debug', action="store_true", help='Enable debug output')
     parser.add_argument('-l', '--list-comports', action="store_true", help='List available COM ports')
+    parser.add_argument('-lo', '--log', action="store_true", help='Log radio packets')
     parser.add_argument('-p', '--server-password', type=str, help='Server login password')
     parser.add_argument('-sH', '--server-host-ip', type=str, help='Server hostname/ip')
     parser.add_argument('-sP', '--server-port', type=str, help='Server port')
@@ -2041,6 +2045,13 @@ async def main():
 
     if args.debug:
         debug = True
+        
+    if args.log:
+        now = datetime.datetime.now()
+        todate = now.strftime("%Y-%m-%d %H:%M:%S")
+        log = True
+        logging.basicConfig(filename='TH9800_CAT.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        logging.info(f"\n*****TH9800_CAT app started: {todate}*****")
 
     if args.list_comports:
         available_ports = serial.tools.list_ports.comports()
