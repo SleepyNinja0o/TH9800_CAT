@@ -17,14 +17,16 @@ There was no documentation on the remote radio head protocol so I had to reverse
 ### Software <a href="https://buymeacoffee.com/sleepyninja" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-green.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" align="right"></a>
 - [Python](https://www.python.org/downloads/) (written in v3.13)
 - Python modules (Install using "pip install -r requirements.txt" for Windows + Linux x64):
-  - [asyncio](https://pypi.org/project/asyncio/) module
-  - [pySerial-asyncio](https://pypi.org/project/pyserial-asyncio/) module
-  - [DearPyGui](https://pypi.org/project/dearpygui/) module
+  - [setuptools](https://pypi.org/project/setuptools/) (required for DearPyGui build on ARM64)
+  - [asyncio](https://pypi.org/project/asyncio/)
+  - [pySerial-asyncio](https://pypi.org/project/pyserial-asyncio/)
+  - [DearPyGui](https://pypi.org/project/dearpygui/)
     - If you're running an ARMv7/ARMv8 processor (Common in [SBCs](https://en.wikipedia.org/wiki/Single-board_computer)), you will have to manually build the DearPyGui module.<br>
         (Grab some coffee, the build can take a while on lower end boards)<br><br>
          ```
          apt update
          apt install git cmake python3 python3-dev libglu1-mesa-dev libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
+         pip install setuptools
          git clone --recursive https://github.com/hoffstadt/DearPyGui
          cd DearPyGui
          
@@ -37,10 +39,12 @@ There was no documentation on the remote radio head protocol so I had to reverse
          pip install ../dist/dearpygui-2.0.0-cp312-cp312-linux_aarch64.whl
          ```
 ## How to Run
- - Right click "TH9800_CAT.py" file and start with Python.
- - Open command line, CD to directory, and run "python.exe TH9800_CAT.py".
+ - For Windows + Linux, install Python3 and then run "pip install -r requirements.txt".
+ - Linux systems can also run the provided installer (install.sh) created by [ukbodypilot](https://github.com/ukbodypilot).
+    - This installer is recommended for ARM64 processors due to the more complex install process - See note above for DearPyGui module on ARM64 Linux.
+ - Open command line, CD to the directory, and run "python TH9800_CAT.py".
 
-## Setup
+## Hardware Setup
 ![Logic Analyzer](https://github.com/user-attachments/assets/d5947f75-5652-4114-9efd-5413d0a7ce16)
 
 ![TH9800 Serial USB Setup](https://github.com/user-attachments/assets/8258de67-dcb8-42cf-860e-50841742ae6c)
