@@ -1,9 +1,12 @@
 from getpass import getpass
 from TH9800_Enums import *
 from time import sleep
-import dearpygui.dearpygui as dpg
+try:
+    import dearpygui.dearpygui as dpg
+except ImportError:
+    dpg = None  # Headless mode — no GUI
 import serial.tools.list_ports,serial_asyncio,asyncio,threading
-import logging,datetime,argparse,platform,ctypes,re,os
+import logging,datetime,argparse,platform,ctypes,re,os,sys
 
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
@@ -13,6 +16,51 @@ log = False
 protocol = None
 read_loop_future = None
 write_loop_future = None
+
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.txt")
+CONFIG_DEFAULTS = {
+    "baud_rate": "19200",
+    "device": "FT232R USB UART",
+    "host": "",
+    "port": "",
+    "password": "",
+    "auto_start_server": "true",
+}
+
+def load_config():
+    if not os.path.exists(CONFIG_PATH):
+        save_config(CONFIG_DEFAULTS)
+        return dict(CONFIG_DEFAULTS)
+    settings = dict(CONFIG_DEFAULTS)
+    with open(CONFIG_PATH, "r") as f:
+        for line in f:
+            line = line.strip()
+            if "=" in line:
+                key, _, value = line.partition("=")
+                key = key.strip()
+                if key in settings:
+                    settings[key] = value.strip()
+    return settings
+
+def save_config(settings):
+    with open(CONFIG_PATH, "w") as f:
+        for key in CONFIG_DEFAULTS:
+            f.write(f"{key}={settings.get(key, '')}\n")
+
+def save_current_settings():
+    existing = load_config()
+    comport = dpg.get_value("comport")
+    device = ""
+    if comport and ": " in comport:
+        device = comport.split(": ", 1)[1]
+    existing.update({
+        "baud_rate": dpg.get_value("baud_rate"),
+        "device": device,
+        "host": dpg.get_value("tcp_host_text"),
+        "port": dpg.get_value("tcp_port_text"),
+        "password": dpg.get_value("tcp_pass_text"),
+    })
+    save_config(existing)
 
 def printd(msg):
     if debug == True:
@@ -64,37 +112,181 @@ class TCP:
 
     async def handle_tcpserver_stream(self, reader, writer):
         global protocol
-        async def process_tcp_cmd(self, cmd, data, writer):
+        # Per-connection auth state (not shared — so one client disconnecting
+        # doesn't kill auth for other connected clients)
+        conn_loggedin = False
+        conn_login_count = 0
+
+        async def process_tcp_cmd(cmd, data, writer):
+            nonlocal conn_loggedin, conn_login_count
             global protocol
-            if cmd != "pass" and cmd != "exit" and self.tcpserver_loggedin == False:
+            if cmd != "pass" and cmd != "exit" and conn_loggedin == False:
                 return "Unauthorized"
 
             match cmd:
                 case "pass":
-                    if self.tcpserver_login_count > 3:
+                    if conn_login_count > 3:
                         return "returnLogin"
                     if data == self.tcpserver_passw:
-                        self.tcpserver_loggedin = True
-                        self.tcpserver_login_count = 0
+                        conn_loggedin = True
+                        conn_login_count = 0
                         return "Login Successful"
                     else:
-                        self.tcpserver_login_count += 1
+                        conn_login_count += 1
                         return "Login Failed"
                 case "data":
+                    if not (protocol.transport and not protocol.transport.is_closing()):
+                        return "serial not connected"
                     protocol.send_packet(data=bytearray.fromhex(data))
                     return "data sent"
+                case "vol":
+                    if not (protocol.transport and not protocol.transport.is_closing()):
+                        return "serial not connected"
+                    # !vol LEFT 50 or !vol RIGHT 75
+                    parts = data.split() if data else []
+                    if len(parts) == 2:
+                        vfo_str = parts[0].upper()
+                        vol = int(parts[1])
+                        if vfo_str in ("LEFT", "L"):
+                            protocol.radio.set_volume(vfo=RADIO_VFO.LEFT, vol=vol)
+                        elif vfo_str in ("RIGHT", "R"):
+                            protocol.radio.set_volume(vfo=RADIO_VFO.RIGHT, vol=vol)
+                        return f"vol {vfo_str} {vol}"
+                    return "usage: !vol LEFT|RIGHT 0-100"
                 case "rts":
+                    if not (protocol.transport and not protocol.transport.is_closing()):
+                        return "serial not connected"
                     if data == None or data == "":
                         protocol.toggle_rts()
                     else:
-                        protocol.set_rts(bool(data))
+                        protocol.set_rts(data.strip().lower() in ('true', '1', 'on'))
                     return str(protocol.transport.serial.rts)
+                case "ptt":
+                    if not (protocol.transport and not protocol.transport.is_closing()):
+                        return "serial not connected"
+                    # !ptt [on|off] — explicit key/unkey; bare !ptt toggles (legacy)
+                    radio = protocol.radio
+                    action = (data or '').strip().lower()
+                    if action == 'on':
+                        desired = True
+                    elif action == 'off':
+                        desired = False
+                    else:
+                        desired = not radio.mic_ptt
+                    if desired != radio.mic_ptt:
+                        radio.mic_ptt = desired
+                        radio.vfo_memory[radio.vfo_memory['vfo_active']]['ptt'] = 1 if desired else 0
+                        radio.exe_cmd(cmd=RADIO_TX_CMD.MIC_PTT)
+                    return str(radio.mic_ptt)
                 case "dtr":
                     if data == None or data == "":
                         protocol.toggle_dtr()
                     else:
-                        protocol.set_dtr(bool(data))
+                        protocol.set_dtr(data.strip().lower() in ('true', '1', 'on'))
                     return str(protocol.transport.serial.dtr)
+                case "serial":
+                    # !serial disconnect / !serial connect — cycle the serial port
+                    action = (data or '').strip().lower()
+                    if action == 'disconnect':
+                        if protocol.transport and not protocol.transport.is_closing():
+                            if protocol._read_task and not protocol._read_task.done():
+                                protocol._read_task.cancel()
+                            if protocol._write_task and not protocol._write_task.done():
+                                protocol._write_task.cancel()
+                            protocol._read_task = None
+                            protocol._write_task = None
+                            try:
+                                protocol.transport.serial.dtr = False
+                            except:
+                                pass
+                            protocol.transport.close()
+                            protocol.ready.clear()
+                            while not protocol.receive_queue.empty():
+                                try: protocol.receive_queue.get_nowait()
+                                except: break
+                            while not protocol.transmit_queue.empty():
+                                try: protocol.transmit_queue.get_nowait()
+                                except: break
+                            protocol.buffer.clear()
+                            print("Serial disconnected via TCP")
+                            if protocol.radio.dpg_enabled:
+                                dpg.configure_item("connect_button", label="Connect")
+                                dpg.configure_item("dtr_button", show=False)
+                                dpg.configure_item("rts_button", show=False)
+                                dpg.configure_item("rts_text", show=False)
+                                dpg.configure_item("rts_label", show=False)
+                                dpg.configure_item("fp_rts_button", show=False)
+                                dpg.configure_item("fp_rts_text", show=False)
+                                dpg.configure_item("fp_rts_label", show=False)
+                            return "serial disconnected"
+                        return "serial not connected"
+                    elif action == 'connect':
+                        if protocol.transport and not protocol.transport.is_closing():
+                            return "serial already connected"
+                        # Reconnect using saved config.txt
+                        try:
+                            import serial_asyncio
+                            import serial.tools.list_ports
+                            cfg = load_config()
+                            device_name = cfg.get('device', '')
+                            baudrate = int(cfg.get('baud_rate', 19200))
+                            # Find COM port matching device name
+                            comport = None
+                            for p in serial.tools.list_ports.comports():
+                                port_str = f"{p.device}: {p.description}"
+                                if device_name and device_name in p.description:
+                                    comport = p.device
+                                    break
+                            if not comport:
+                                # Fallback: try first available port
+                                ports = serial.tools.list_ports.comports()
+                                if ports:
+                                    comport = ports[0].device
+                            if not comport:
+                                return "serial no port found"
+                            protocol.reset_ready()
+                            loop = asyncio.get_event_loop()
+                            transport, _ = await serial_asyncio.create_serial_connection(
+                                loop, lambda: protocol, comport, baudrate=baudrate
+                            )
+                            await protocol.ready.wait()
+                            # DTR toggle wakes the radio's serial output
+                            # (without this, data_received never fires on first connect)
+                            protocol.transport.serial.dtr = False
+                            await asyncio.sleep(0.1)
+                            protocol.transport.serial.dtr = True
+                            saved_rts = SerialProtocol._load_rts_state()
+                            protocol.transport.serial.rts = saved_rts
+                            protocol.set_rts(saved_rts)
+                            await asyncio.sleep(0.5)
+                            # Start read/write loops (critical — without these, no data flows)
+                            protocol._read_task = asyncio.create_task(read_loop(protocol))
+                            protocol._write_task = asyncio.create_task(write_loop(protocol))
+                            # STARTUP handshake tells radio to begin sending display data.
+                            # STARTUP_2 response handler internally sends L/R_VOLUME_SQUELCH
+                            # — that's the normal handshake, not a storm.
+                            protocol.radio.connect_process = True
+                            protocol.radio.exe_cmd(cmd=RADIO_TX_CMD.STARTUP)
+                            await asyncio.sleep(3)
+                            print(f"Serial connected via TCP ({comport} @ {baudrate})")
+                            if protocol.radio.dpg_enabled:
+                                dpg.configure_item("connect_button", label="Disconnect")
+                                dpg.configure_item("rts_button", show=True)
+                                dpg.configure_item("dtr_button", show=True)
+                                dpg.configure_item("rts_text", show=True)
+                                dpg.configure_item("rts_label", show=True)
+                                dpg.configure_item("fp_rts_button", show=True)
+                                dpg.configure_item("fp_rts_text", show=True)
+                                dpg.configure_item("fp_rts_label", show=True)
+                            return "serial connected"
+                        except Exception as e:
+                            print(f"Serial connect via TCP failed: {e}")
+                            return f"serial error: {e}"
+                    elif action == 'status':
+                        if protocol.transport and not protocol.transport.is_closing():
+                            return "serial connected"
+                        return "serial disconnected"
+                    return "usage: !serial connect|disconnect|status"
                 case "exit":
                     return "return"
                 case _:
@@ -111,7 +303,7 @@ class TCP:
                 data = await reader.readline()
 
                 if not data:
-                    continue
+                    break  # connection closed
 
                 printd(f"Data RCVD: {type(data)} /// {data}")
                 data = data[0:-1] #Pull new line character off the end
@@ -119,7 +311,7 @@ class TCP:
                 if type(data) == bytearray or type(data) == bytes: #Data received is a radio packet
                     if data.find(b'\xAA\xFD') != -1:
                         printd(f"Data RCVD(hex): {data.hex().upper()}")
-                        if self.tcpserver_loggedin == True:
+                        if conn_loggedin == True:
                             protocol.send_packet(data=data)
                         else:
                             writer.write("Unauthorized\n".encode())
@@ -136,15 +328,15 @@ class TCP:
                     if data != -1:
                         cmd = str(message[1:data])
                         data = str(message[data+1::])
-                        print(f"CMD RCVD1:{{{cmd}}}:{{{data}}}")
+                        printd(f"CMD RCVD1:{{{cmd}}}:{{{data}}}")
                         response = f"CMD{{{cmd}[{data}]}} "
                     else:
                         cmd = str(message[1::])
                         data = ""
-                        print(f"CMD RCVD2:{{{cmd}}}")
+                        printd(f"CMD RCVD2:{{{cmd}}}")
                         response = f"CMD{{{cmd}}} "
 
-                    response2 = await process_tcp_cmd(self=self, cmd=cmd, data=data, writer=writer)
+                    response2 = await process_tcp_cmd(cmd=cmd, data=data, writer=writer)
                     printd(f"Response2:{response2}")
                     
                     if response2 == "return":
@@ -160,16 +352,9 @@ class TCP:
                     elif response2 == "Login Successful":
                         writer.write(f"{response2}\n".encode())
                         await writer.drain()
-                        
-                        protocol.set_rts(True)
-                        protocol.radio.connect_process = True
-                        protocol.radio.exe_cmd(cmd=RADIO_TX_CMD.STARTUP)
-                        await asyncio.sleep(0.5)
-                        protocol.radio.exe_cmd(cmd=RADIO_TX_CMD.L_VOLUME_SQUELCH)
-                        await asyncio.sleep(0.5)
-                        protocol.radio.exe_cmd(cmd=RADIO_TX_CMD.R_VOLUME_SQUELCH)
-                        await asyncio.sleep(2)
-                        
+                        # Do NOT send STARTUP here — the !serial connect handler owns
+                        # the STARTUP sequence. Sending it here too causes a double-STARTUP
+                        # that overwhelms the radio (RIGHT VFO goes dead).
                         continue
                     else:
                         response += response2
@@ -184,17 +369,15 @@ class TCP:
         except asyncio.CancelledError:
             print(f"Connection to {addr} cancelled.")
             self.tcpserver_ready = False
-            self.tcpserver_loggedin = False
-            self.tcpserver_login_count = 0
         finally:
             print(f"Connection closed: {addr}")
             try:
-                self.tcpserver_loggedin = False
-                self.tcpserver_login_count = 0
 
                 writer.close()
-                if sys.platform != "win32": # On Windows, skip wait_closed entirely to avoid WinError 64
+                try:
                     await writer.wait_closed()
+                except (ConnectionResetError, BrokenPipeError, OSError):
+                    pass
             except:
                 None
 
@@ -223,10 +406,10 @@ class TCP:
         try:
             while True:
                 data = await reader.readline()
-                
+
                 if not data:
-                    continue
-                
+                    break  # connection closed
+
                 printd(f"Data RCVD: {type(data)} /// {data}")
                 data = data[0:-1] #Pull new line character off the end
                 
@@ -264,19 +447,25 @@ class TCP:
                             self.tcpclient_server_stop = True
                             break
                         case "rts":
-                            match data:
-                                case "True":
-                                    dpg.set_value("rts_text", "USB Controlled")
-                                    protocol.radio.set_dpg_theme(tag="rts_text",color="green")
-                                case "False":
-                                    dpg.set_value("rts_text", "Radio Controlled")
-                                    protocol.radio.set_dpg_theme(tag="rts_text",color="red")
+                            if protocol.radio.dpg_enabled and dpg:
+                                match data:
+                                    case "True":
+                                        dpg.set_value("rts_text", "USB Controlled")
+                                        protocol.radio.set_dpg_theme(tag="rts_text",color="green")
+                                        dpg.set_value("fp_rts_text", "USB Controlled")
+                                        protocol.radio.set_dpg_theme(tag="fp_rts_text",color="green")
+                                    case "False":
+                                        dpg.set_value("rts_text", "Radio Controlled")
+                                        protocol.radio.set_dpg_theme(tag="rts_text",color="red")
+                                        dpg.set_value("fp_rts_text", "Radio Controlled")
+                                        protocol.radio.set_dpg_theme(tag="fp_rts_text",color="red")
                         case "dtr":
-                            match data:
-                                case "True":
-                                    protocol.radio.set_dpg_theme(tag="dtr_button",color="green")
-                                case "False":
-                                    protocol.radio.set_dpg_theme(tag="dtr_button",color="red")
+                            if protocol.radio.dpg_enabled and dpg:
+                                match data:
+                                    case "True":
+                                        protocol.radio.set_dpg_theme(tag="dtr_button",color="green")
+                                    case "False":
+                                        protocol.radio.set_dpg_theme(tag="dtr_button",color="red")
                     continue
                 else:
                     print(f"RCVD:{message}")
@@ -521,7 +710,8 @@ class SerialRadio:
             vol = 100
 
         vfo = str(vfo)
-        dpg.set_value(f"slider_{vfo.lower()}_volume",vol)
+        if self.dpg_enabled and dpg:
+            dpg.set_value(f"slider_{vfo.lower()}_volume",vol)
         payload = self.packet.vol_sq_to_packet(value=vol)
         cmd = RADIO_TX_CMD[f"{vfo}_VOLUME"]
         self.vfo_memory[self.get_vfo(vfo=vfo)]['volume'] = vol
@@ -536,7 +726,8 @@ class SerialRadio:
             sq = 100
 
         vfo = str(vfo)
-        dpg.set_value(f"slider_{vfo.lower()}_squelch",sq)
+        if self.dpg_enabled and dpg:
+            dpg.set_value(f"slider_{vfo.lower()}_squelch",sq)
         payload = self.packet.vol_sq_to_packet(value=sq)
         cmd = RADIO_TX_CMD[f"{vfo}_SQUELCH"]
         self.vfo_memory[self.get_vfo(vfo=vfo)]['squelch'] = sq
@@ -621,6 +812,27 @@ class SerialProtocol(asyncio.Protocol):
         self.transmit_queue = asyncio.Queue()
         self.buffer = bytearray()
         self.radio = radio
+        self._read_task = None
+        self._write_task = None
+
+    RTS_STATE_FILE = '/tmp/th9800_rts_state'
+
+    def _save_rts_state(self, state):
+        """Persist RTS state so it survives restarts."""
+        try:
+            with open(self.RTS_STATE_FILE, 'w') as f:
+                f.write('1' if state else '0')
+        except Exception:
+            pass
+
+    @staticmethod
+    def _load_rts_state():
+        """Load saved RTS state. Returns True (USB Controlled) if no saved state."""
+        try:
+            with open(SerialProtocol.RTS_STATE_FILE, 'r') as f:
+                return f.read().strip() == '1'
+        except Exception:
+            return True  # default: USB Controlled
 
     def set_rts(self, state: bool):
         if TCP.tcpclient_ready == True:
@@ -628,15 +840,20 @@ class SerialProtocol(asyncio.Protocol):
         else:
             printd(f"RTS state: {self.transport.serial.rts} Setting to {state}")
             self.transport.serial.rts = state
+            self._save_rts_state(state)
         if self.radio.dpg_enabled == False:
             return
         match state:
             case True:
                 dpg.set_value("rts_text", "USB Controlled")
                 self.radio.set_dpg_theme(tag="rts_text",color="green")
+                dpg.set_value("fp_rts_text", "USB Controlled")
+                self.radio.set_dpg_theme(tag="fp_rts_text",color="green")
             case False:
                 dpg.set_value("rts_text", "Radio Controlled")
                 self.radio.set_dpg_theme(tag="rts_text",color="red")
+                dpg.set_value("fp_rts_text", "Radio Controlled")
+                self.radio.set_dpg_theme(tag="fp_rts_text",color="red")
 
     def toggle_rts(self):
         if TCP.tcpclient_ready == True:
@@ -645,15 +862,20 @@ class SerialProtocol(asyncio.Protocol):
         else:
             state = not self.transport.serial.rts  #Toggle state
             self.transport.serial.rts = state
+            self._save_rts_state(state)
         if self.radio.dpg_enabled == False:
             return
         match state:
             case True:
                 dpg.set_value("rts_text", "USB Controlled")
                 self.radio.set_dpg_theme(tag="rts_text",color="green")
+                dpg.set_value("fp_rts_text", "USB Controlled")
+                self.radio.set_dpg_theme(tag="fp_rts_text",color="green")
             case False:
                 dpg.set_value("rts_text", "Radio Controlled")
                 self.radio.set_dpg_theme(tag="rts_text",color="red")
+                dpg.set_value("fp_rts_text", "Radio Controlled")
+                self.radio.set_dpg_theme(tag="fp_rts_text",color="red")
 
     def set_dtr(self, state: bool):
         if TCP.tcpclient_ready == True:
@@ -734,12 +956,36 @@ class SerialProtocol(asyncio.Protocol):
                 # Optionally: log, raise alert, or resync buffer here
 
     def connection_lost(self, exc):
-        print("Connection lost")
-        asyncio.get_event_loop().stop()
-        self.transport.close()
+        if exc:
+            print(f"Connection lost: {exc}")
+        else:
+            print("Connection closed")
+        try:
+            self.transport.serial.dtr = False
+        except:
+            pass
+        self.ready.clear()
+        # Cancel read/write loop tasks if they exist
+        if hasattr(self, '_read_task') and self._read_task and not self._read_task.done():
+            self._read_task.cancel()
+        if hasattr(self, '_write_task') and self._write_task and not self._write_task.done():
+            self._write_task.cancel()
+        # Update UI to reflect disconnected state
+        if self.radio.dpg_enabled:
+            try:
+                dpg.configure_item("connect_button", label="Connect")
+                dpg.configure_item("dtr_button", show=False)
+                dpg.configure_item("rts_button", show=False)
+                dpg.configure_item("rts_text", show=False)
+                dpg.configure_item("rts_label", show=False)
+                dpg.configure_item("fp_rts_button", show=False)
+                dpg.configure_item("fp_rts_text", show=False)
+                dpg.configure_item("fp_rts_label", show=False)
+            except:
+                pass  # UI items may not exist yet
 
     def send_packet(self, data: bytes):
-        if self.transport and not self.transport.is_closing() or TCP.tcpclient_ready == True:
+        if (self.transport and not self.transport.is_closing()) or TCP.tcpclient_ready == True:
             printd(f"Sending: {data.hex().upper()}")
             self.transmit_queue.put_nowait(data)
             #self.transport.write(data)
@@ -823,7 +1069,7 @@ class SerialPacket:
                         if self.radio.dpg_enabled == True:
                             dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",radio_channel)
                             dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
-                    case (0x40|0xC0):
+                    case 0x40 | 0xC0:
                         if self.radio.vfo_change == True:
                             return
                         elif self.radio.menu_open == True and self.radio.vfo_active_processing == self.radio.vfo_memory['vfo_active'] and self.radio.connect_process == False:
@@ -1041,7 +1287,7 @@ class SerialPacket:
             enabled_icons = [name for bit, name in icon_map.items() if icon_byte & bit]
             disabled_icons = [name for bit, name in icon_map.items() if not icon_byte & bit]
             if "L" in disabled_icons and "M" in disabled_icons:
-                enabled_icons += "H"
+                enabled_icons += ["H"]
             for icon in enabled_icons:
                 self.radio.set_icon(vfo=vfo,icon=RADIO_RX_ICON[f"{icon}"],value=True)
             for icon in disabled_icons:
@@ -1330,10 +1576,12 @@ def tcp_connect_callback(sender, app_data, user_data):
     password = dpg.get_value("tcp_pass_text")
     protocol = user_data['protocol']
     label = user_data['label']
-    
+
     if password == None:
         password = ""
-    
+
+    save_current_settings()
+
     if label == "Start Server":
         tag = "tcp_startserver_button"
         label = dpg.get_item_label(tag)
@@ -1347,10 +1595,14 @@ def tcp_connect_callback(sender, app_data, user_data):
             dpg.configure_item(tag, label="Stop Server")
             dpg.configure_item("rts_button", show=True)
             dpg.configure_item("dtr_button", show=True)
-            
+
             dpg.configure_item("rts_text", show=True)
             dpg.configure_item("rts_label", show=True)
-            
+
+            dpg.configure_item("fp_rts_button", show=True)
+            dpg.configure_item("fp_rts_text", show=True)
+            dpg.configure_item("fp_rts_label", show=True)
+
             dpg.configure_item("tcp_connect_button", show=False)
             dpg.configure_item(tag, show=True)
             dpg.configure_item("connection_window", collapsed=True)
@@ -1370,10 +1622,14 @@ def tcp_connect_callback(sender, app_data, user_data):
             dpg.configure_item("tcp_connect_button", label="Start Server")
             dpg.configure_item("rts_button", show=False)
             dpg.configure_item("dtr_button", show=False)
-            
+
             dpg.configure_item("rts_text", show=False)
             dpg.configure_item("rts_label", show=False)
-            
+
+            dpg.configure_item("fp_rts_button", show=False)
+            dpg.configure_item("fp_rts_text", show=False)
+            dpg.configure_item("fp_rts_label", show=False)
+
             dpg.configure_item("tcp_connect_button", show=True)
             dpg.configure_item("tcp_startserver_button", show=True)
     elif label == "Connect Host":
@@ -1398,10 +1654,14 @@ def tcp_connect_callback(sender, app_data, user_data):
             dpg.configure_item(tag, label="Disconnect Host")
             dpg.configure_item("rts_button", show=True)
             dpg.configure_item("dtr_button", show=True)
-            
+
             dpg.configure_item("rts_text", show=True)
             dpg.configure_item("rts_label", show=True)
-            
+
+            dpg.configure_item("fp_rts_button", show=True)
+            dpg.configure_item("fp_rts_text", show=True)
+            dpg.configure_item("fp_rts_label", show=True)
+
             dpg.configure_item(tag, show=True)
             dpg.configure_item("tcp_startserver_button", show=False)
             dpg.configure_item("connection_window", collapsed=True)
@@ -1419,12 +1679,16 @@ def tcp_connect_callback(sender, app_data, user_data):
             dpg.configure_item("tcp_connect_button", label="Connect Host")
             dpg.configure_item("rts_button", show=False)
             dpg.configure_item("dtr_button", show=False)
-            
+
             dpg.configure_item("rts_text", show=False)
             dpg.configure_item("rts_label", show=False)
-            
+
+            dpg.configure_item("fp_rts_button", show=False)
+            dpg.configure_item("fp_rts_text", show=False)
+            dpg.configure_item("fp_rts_label", show=False)
+
             dpg.configure_item("tcp_connect_button", show=True)
-            
+
             dpg.configure_item("tcp_startserver_button", show=True)
 
 def update_signal(radio: SerialRadio, vfo: RADIO_VFO, s_value: int):
@@ -1449,7 +1713,8 @@ def refresh_comports_callback(sender, app_data, user_data):
     dpg.configure_item("comport", default_value=ports[0] if available_ports else "")
 
 def cancel_callback(sender, app_data, user_data):
-    dpg.configure_item(user_data, show=False)
+    modal_id = user_data[0] if isinstance(user_data, tuple) else user_data
+    dpg.delete_item(modal_id)
 
 def dpg_notification_window(title, message):
     with dpg.window(label=title, modal=True, no_close=True, pos=[22, 100]) as modal_id:
@@ -1548,9 +1813,9 @@ def vol_callback(sender, app_data, user_data):
     
     radio.set_volume(vfo=vfo,vol=app_data)
 
-async def connect_serial_async(protocol, comport, baudrate):
+async def connect_serial_async(protocol, comport, baudrate, auto_dismiss=False):
     global TCP
-    
+
     radio = protocol.radio
     transport = None
 
@@ -1561,50 +1826,52 @@ async def connect_serial_async(protocol, comport, baudrate):
             )
             await protocol.ready.wait()
             protocol.set_dtr(True)
+            # Restore saved RTS state (persists across restarts)
+            saved_rts = SerialProtocol._load_rts_state()
+            protocol.transport.serial.rts = saved_rts
+            protocol.set_rts(saved_rts)  # update UI to match
             await asyncio.sleep(0.5)
-            printd(f"Connected to {comport} at {baudrate} baud.")
-            protocol.set_rts(True) #Enable USB/CAT TX Control
 
         if radio.dpg_enabled == True:
             dpg.configure_item("rts_button", show=True)
             dpg.configure_item("dtr_button", show=True)
             dpg.configure_item("rts_text", show=True)
             dpg.configure_item("rts_label", show=True)
+            dpg.configure_item("fp_rts_button", show=True)
+            dpg.configure_item("fp_rts_text", show=True)
+            dpg.configure_item("fp_rts_label", show=True)
             dpg.configure_item("radio_window", show=True)
             dpg.configure_item("connection_window", collapsed=True)
             dpg.configure_item("connect_button", label="Disconnect")
-        asyncio.create_task(read_loop(protocol))
-        asyncio.create_task(write_loop(protocol))
+        protocol._read_task = asyncio.create_task(read_loop(protocol))
+        protocol._write_task = asyncio.create_task(write_loop(protocol))
         if TCP.tcpclient_ready == False:
             radio.connect_process = True
 
+            # Only send STARTUP — the radio's STARTUP_2 response handler
+            # automatically sends L/R_VOLUME_SQUELCH internally, so sending
+            # them here too creates a command storm that locks up the serial
             radio.exe_cmd(cmd=RADIO_TX_CMD.STARTUP)
-            await asyncio.sleep(0.5)
-            radio.exe_cmd(cmd=RADIO_TX_CMD.L_VOLUME_SQUELCH)
-            await asyncio.sleep(0.5)
-            radio.exe_cmd(cmd=RADIO_TX_CMD.R_VOLUME_SQUELCH)
 
         cat_controller = CATController(radio=radio)
         radio.cat = cat_controller
         rigctl_server = RigctlServer(cat_controller)
-        
+
         if radio.rigctl_server == True:
             dpg.configure_item("getstate_button", show=True)
             radio.get_freq(vfo=RADIO_VFO.LEFT)
             radio.get_freq(vfo=RADIO_VFO.RIGHT)
             await rigctl_server.start()
-        
+
         await asyncio.sleep(2)
-        if radio.dpg_enabled == True:
-            dpg_notification_window(title="Radio Initialized", message="Radio connected and initialized successfully!")
-        else:
-            print("Radio connected and initialized successfully!")
 
         return transport
     except Exception as e:
         print(f"Connection failed: {e}")
-        if radio.dpg_enabled == True:
-            with dpg.window(label="Error", modal=True, no_close=True) as modal_id:
+        if auto_dismiss:
+            print(f"Auto-connect skipped: {comport} not available")
+        elif radio.dpg_enabled == True:
+            with dpg.window(label="Connection Failed", modal=True, no_close=True) as modal_id:
                 dpg.add_text(e, wrap=300)
                 dpg.add_button(label="Ok", width=75, user_data=(modal_id, True), callback=cancel_callback)
             dpg.set_item_pos(modal_id, [120, 100])
@@ -1623,13 +1890,36 @@ def port_selected_callback(sender, app_data, user_data):
     baudrate = dpg.get_value("baud_rate")
     
     if label == "Disconnect":
+        # Cancel read/write loops before closing transport
+        if protocol._read_task and not protocol._read_task.done():
+            protocol._read_task.cancel()
+        if protocol._write_task and not protocol._write_task.done():
+            protocol._write_task.cancel()
+        protocol._read_task = None
+        protocol._write_task = None
+        try:
+            protocol.transport.serial.dtr = False
+        except:
+            pass
         protocol.transport.close()
+        protocol.ready.clear()
+        # Drain any stale data from queues
+        while not protocol.receive_queue.empty():
+            try: protocol.receive_queue.get_nowait()
+            except: break
+        while not protocol.transmit_queue.empty():
+            try: protocol.transmit_queue.get_nowait()
+            except: break
+        protocol.buffer.clear()
         print(f"{comport} disconnected.\n")
         dpg.configure_item("connect_button", label="Connect")
         dpg.configure_item("dtr_button", show=False)
         dpg.configure_item("rts_button", show=False)
         dpg.configure_item("rts_text", show=False)
         dpg.configure_item("rts_label", show=False)
+        dpg.configure_item("fp_rts_button", show=False)
+        dpg.configure_item("fp_rts_text", show=False)
+        dpg.configure_item("fp_rts_label", show=False)
         return
 
     try:
@@ -1641,10 +1931,12 @@ def port_selected_callback(sender, app_data, user_data):
         dpg.set_item_pos(modal_id, [120, 100])
         return
     
+    save_current_settings()
+
     if not loop.is_running():
         threading.Thread(target=start_event_loop, daemon=True).start()
-        protocol.reset_ready()
-    
+    protocol.reset_ready()
+
     asyncio.run_coroutine_threadsafe(
         connect_serial_async(protocol, comport, baudrate),
         loop
@@ -1657,38 +1949,61 @@ async def run_dpg():
 
 async def read_loop(protocol: SerialProtocol):
     global TCP
-    while True:
-        packet = await protocol.receive_queue.get()
-        
-        if TCP.tcpserver_ready == True and TCP.tcpserver != None:
-            TCP.tcpserver.write(packet+b'\n')
-            await TCP.tcpserver.drain()
-            packet_processor = SerialPacket(protocol=protocol).process_rx_packet(packet=packet)
-        else:
-            packet_processor = SerialPacket(protocol=protocol).process_rx_packet(packet=packet)
+    try:
+        while True:
+            packet = await protocol.receive_queue.get()
+
+            if TCP.tcpserver_ready == True and TCP.tcpserver != None:
+                try:
+                    TCP.tcpserver.write(packet+b'\n')
+                    await TCP.tcpserver.drain()
+                except Exception as e:
+                    print(f"Read loop TCP write error: {e}")
+                packet_processor = SerialPacket(protocol=protocol).process_rx_packet(packet=packet)
+            else:
+                print(f"Read loop: no TCP (ready={TCP.tcpserver_ready}, server={TCP.tcpserver is not None}), pkt={packet[:6].hex()}")
+                packet_processor = SerialPacket(protocol=protocol).process_rx_packet(packet=packet)
+    except asyncio.CancelledError:
+        print("Read loop cancelled")
+    except Exception as e:
+        print(f"Read loop error: {e}")
+        import traceback; traceback.print_exc()
 
 async def write_loop(protocol: SerialProtocol):
     global TCP
 
-    while True:
-        if TCP.tcpclient_ready == True and TCP.tcpclient != None:
-            try:
-                data = await asyncio.wait_for(protocol.transmit_queue.get(), timeout=.10)
-                printd(f"Send pkt tcp: {data}:{type(data)}")
-                TCP.tcpclient.write(data+b'\n')
-                await TCP.tcpclient.drain()
-                if data.hex().find("aafd0c84ffffffff") == -1: #If match sq/vol cmd skip sleep
-                    await asyncio.sleep(0.15)
-            except:
-                None
-        else:
-            try:
-                data = await asyncio.wait_for(protocol.transmit_queue.get(), timeout=.10) #FIX FOR LINUX FREEZES ON TRANSMIT (Old: #data = await protocol.transmit_queue.get())
-                protocol.transport.write(data)
-                if data.hex().find("aafd0c84ffffffff") == -1: #If match sq/vol cmd skip sleep
-                    await asyncio.sleep(0.15)
-            except:
-                None
+    try:
+        while True:
+            if TCP.tcpclient_ready == True and TCP.tcpclient != None:
+                try:
+                    data = await asyncio.wait_for(protocol.transmit_queue.get(), timeout=.10)
+                    printd(f"Send pkt tcp: {data}:{type(data)}")
+                    TCP.tcpclient.write(data+b'\n')
+                    await TCP.tcpclient.drain()
+                    if data.hex().find("aafd0c84ffffffff") == -1: #If match sq/vol cmd skip sleep
+                        await asyncio.sleep(0.15)
+                except asyncio.TimeoutError:
+                    pass  # Normal timeout, no data to send
+                except (ConnectionError, OSError) as e:
+                    print(f"Write loop TCP error: {e}")
+                    break
+            else:
+                try:
+                    data = await asyncio.wait_for(protocol.transmit_queue.get(), timeout=.10) #FIX FOR LINUX FREEZES ON TRANSMIT (Old: #data = await protocol.transmit_queue.get())
+                    if protocol.transport and not protocol.transport.is_closing():
+                        protocol.transport.write(data)
+                    else:
+                        print("Write loop: transport closed, stopping")
+                        break
+                    if data.hex().find("aafd0c84ffffffff") == -1: #If match sq/vol cmd skip sleep
+                        await asyncio.sleep(0.15)
+                except asyncio.TimeoutError:
+                    pass  # Normal timeout, no data to send
+                except (ConnectionError, OSError, serial.SerialException) as e:
+                    print(f"Write loop serial error: {e}")
+                    break
+    except asyncio.CancelledError:
+        print("Write loop cancelled")
 
 def handle_key_press(sender, app_data):
     global protocol
@@ -1736,6 +2051,16 @@ def build_gui(protocol):
         bold_font = dpg.add_font(bold_font_path, 18)
 
     with dpg.window(tag="radio_window", show=True, label="Radio Front Panel", width=580, height=530, pos=[0,20], no_move=True, no_resize=True, user_data={"protocol": protocol}):
+        # === RTS TX Control ===
+        with dpg.group(horizontal=True):
+            dpg.add_text("RTS TX: ", indent=5, tag="fp_rts_label", show=False)
+            dpg.add_text("USB Controlled", tag="fp_rts_text", show=False)
+            protocol.radio.set_dpg_theme(tag="fp_rts_text", color="green")
+            dpg.add_button(label="Toggle RTS", tag="fp_rts_button", show=False, indent=350, width=100, callback=button_callback, user_data={"label": "Toggle RTS", "protocol": protocol, "vfo": RADIO_VFO.NONE})
+        dpg.add_spacer(height=3)
+        dpg.add_separator()
+        dpg.add_spacer(height=5)
+
         # === Hyper Mem Buttons A-F ===
         with dpg.group(horizontal=True):
             dpg.add_text("Hyper Memories: ", indent=15)
@@ -1745,7 +2070,6 @@ def build_gui(protocol):
             dpg.add_button(label="Single VFO", width=90, callback=button_callback, user_data={"label": "Single VFO", "protocol": protocol, "vfo": RADIO_VFO.NONE})
         dpg.add_spacer(height=5)
         dpg.add_separator()
-        dpg.add_spacer(height=3)
 
         # === PREF/SKIP Channel Icons ===
         with dpg.group(horizontal=True):
@@ -2025,6 +2349,21 @@ def build_gui(protocol):
     with dpg.handler_registry():
         dpg.add_key_press_handler(callback=handle_key_press)
 
+    # Load persistent settings from config file
+    settings = load_config()
+    dpg.set_value("baud_rate", settings["baud_rate"])
+    dpg.set_value("tcp_host_text", settings["host"])
+    dpg.set_value("tcp_port_text", settings["port"])
+    dpg.set_value("tcp_pass_text", settings["password"])
+    # Match saved device description against available ports
+    device = settings["device"]
+    if device:
+        for p in ports:
+            if device in p:
+                dpg.set_value("comport", p)
+                break
+    return device
+
 async def main():
     global TCP,debug,log,protocol,is_user_admin
     parser = argparse.ArgumentParser(description="Example Python app with command-line arguments.")
@@ -2062,11 +2401,11 @@ async def main():
     if args.server_port:
         if int(args.server_port) < 1024 and is_user_admin == False and platform.system() == "Linux":
             print("Ports below 1024 require admin privileges")
-            exit
+            exit()
 
     if args.start_server:
         if args.comport and args.baudrate:
-            if args.server_password:
+            if args.server_password is not None:
                 password = args.server_password
             else:
                 print("*Enter password for CAT server*")
@@ -2076,34 +2415,102 @@ async def main():
             radio.dpg_enabled = False
             print("\nStarting command line server...")
 
-            if not loop.is_running():
-                threading.Thread(target=start_event_loop, daemon=True).start()
-                protocol.reset_ready()
-
-            TCP.tcpserver_future = asyncio.run_coroutine_threadsafe(
-                TCP.start_tcp_server(host=args.server_host_ip, port=args.server_port, password=password, protocol=protocol),
-                loop
-            )
+            # Single-loop headless: main() runs on the module-level `loop`
+            # (see __main__), so the TCP server, shutdown event, and serial
+            # callbacks all share one event loop. Earlier versions spun a
+            # second loop via asyncio.run() which meant the signal handler
+            # set the event on the wrong loop — shutdown hung until SIGKILL.
+            tcp_task = asyncio.create_task(
+                TCP.start_tcp_server(
+                    host=args.server_host_ip, port=args.server_port,
+                    password=password, protocol=protocol))
 
             while TCP.tcpserver_ready == False:
-                await asyncio.sleep(2)
+                await asyncio.sleep(0.1)
 
-            asyncio.run_coroutine_threadsafe(
-                connect_serial_async(protocol, args.comport, args.baudrate),
-                loop
-            )
+            # Don't connect serial automatically — let the user connect
+            # via the web UI "Connect" button (avoids STARTUP command storm
+            # that locks up the radio's serial interface)
+            print(f"TCP server ready — waiting for serial connect via web UI or TCP command")
+            print(f"  Serial device: {args.comport} @ {args.baudrate}")
 
-            while True:
-                await asyncio.sleep(10)
+            # The shutdown Event lives on this (module) loop. The POSIX signal
+            # handler is installed in __main__ on the main thread (add_signal_handler
+            # can't be used here — main() runs on the loop's background thread) and
+            # wakes us via loop.call_soon_threadsafe(_shutdown_event.set).
+            global _headless_shutdown_event
+            _headless_shutdown_event = asyncio.Event()
+
+            try:
+                await _headless_shutdown_event.wait()
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                pass
+            finally:
+                if protocol.transport and not protocol.transport.is_closing():
+                    print("  Closing serial port...")
+                    try:
+                        protocol.transport.serial.dtr = False
+                    except Exception:
+                        pass
+                    protocol.transport.close()
+                if TCP.tcpserver_server is not None:
+                    try:
+                        TCP.tcpserver_server.close()
+                        await TCP.tcpserver_server.wait_closed()
+                    except Exception:
+                        pass
+                TCP.tcpserver_ready = False
+                tcp_task.cancel()
+                try:
+                    await tcp_task
+                except (asyncio.CancelledError, Exception):
+                    pass
+                print("  Headless server shut down cleanly.")
+            return  # Skip GUI path below
         else:
             print("A COM Port and Baud Rate are required to start the command line server!")
 
     if radio.dpg_enabled == True:
         dpg.create_context()
-        build_gui(protocol)
+        saved_device = build_gui(protocol)
         dpg.create_viewport(title="TYT TH9800 CAT Control", width=575, height=580, resizable=False)
         dpg.setup_dearpygui()
         dpg.show_viewport()
+
+        # Ensure event loop is running for auto-start features
+        if not loop.is_running():
+            threading.Thread(target=start_event_loop, daemon=True).start()
+
+        # Auto-start TCP server if configured
+        settings = load_config()
+        if settings.get("auto_start_server", "").lower() != "false":
+            tcp_host = dpg.get_value("tcp_host_text") or "0.0.0.0"
+            tcp_port = dpg.get_value("tcp_port_text") or "9800"
+            tcp_pass = dpg.get_value("tcp_pass_text") or ""
+            TCP.tcpserver_future = asyncio.run_coroutine_threadsafe(
+                TCP.start_tcp_server(host=tcp_host, port=tcp_port, password=tcp_pass, protocol=protocol),
+                loop
+            )
+            dpg.configure_item("tcp_startserver_button", label="Stop Server")
+            dpg.configure_item("tcp_connect_button", show=False)
+            dpg.configure_item("rts_button", show=True)
+            dpg.configure_item("dtr_button", show=True)
+            dpg.configure_item("rts_text", show=True)
+            dpg.configure_item("rts_label", show=True)
+            dpg.configure_item("fp_rts_button", show=True)
+            dpg.configure_item("fp_rts_text", show=True)
+            dpg.configure_item("fp_rts_label", show=True)
+
+        # Auto-connect to saved serial device if it's present
+        comport_value = dpg.get_value("comport")
+        if saved_device and comport_value and ":" in comport_value:
+            auto_comport = comport_value[0:comport_value.index(":")]
+            auto_baudrate = dpg.get_value("baud_rate")
+            protocol.reset_ready()
+            asyncio.run_coroutine_threadsafe(
+                connect_serial_async(protocol, auto_comport, auto_baudrate, auto_dismiss=True),
+                loop
+            )
 
     try:
         if radio.dpg_enabled == True:
@@ -2114,9 +2521,33 @@ async def main():
         pass
     finally:
         if protocol.transport != None:
+            try:
+                protocol.transport.serial.dtr = False
+            except:
+                pass
             protocol.transport.close()
         if radio.dpg_enabled == True:
             dpg.destroy_context()
 
+_headless_shutdown_event = None  # set by main() once the loop binds it
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Headless mode runs on the module-level `loop` (started at import by the
+    # background thread at line 72). asyncio.run() would create a second loop
+    # and leave the TCP server + signal handler straddling two event loops,
+    # which is the exact bug that caused the 10 s SIGKILL hang on systemd stop.
+    if any(a in sys.argv for a in ("-s", "--start-server")):
+        import signal as _signal
+        def _shutdown(_signum, _frame):
+            print("\nSIGTERM received — shutting down...")
+            if _headless_shutdown_event is not None:
+                loop.call_soon_threadsafe(_headless_shutdown_event.set)
+        _signal.signal(_signal.SIGTERM, _shutdown)
+        _signal.signal(_signal.SIGINT, _shutdown)
+        fut = asyncio.run_coroutine_threadsafe(main(), loop)
+        try:
+            fut.result()
+        except KeyboardInterrupt:
+            pass
+    else:
+        asyncio.run(main())
