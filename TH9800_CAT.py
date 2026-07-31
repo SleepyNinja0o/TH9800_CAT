@@ -24,7 +24,7 @@ CONFIG_DEFAULTS = {
     "host": "",
     "port": "",
     "password": "",
-    "auto_start_server": "true",
+    "auto_start_server": "false",
 }
 
 def load_config():
@@ -2050,7 +2050,7 @@ def build_gui(protocol):
     with dpg.font_registry():
         bold_font = dpg.add_font(bold_font_path, 18)
 
-    with dpg.window(tag="radio_window", show=True, label="Radio Front Panel", width=580, height=530, pos=[0,20], no_move=True, no_resize=True, user_data={"protocol": protocol}):
+    with dpg.window(tag="radio_window", show=True, label="Radio Front Panel", width=580, height=545, pos=[0,20], no_move=True, no_resize=True, user_data={"protocol": protocol}):
         # === RTS TX Control ===
         with dpg.group(horizontal=True):
             dpg.add_text("RTS TX: ", indent=5, tag="fp_rts_label", show=False)
@@ -2277,7 +2277,7 @@ def build_gui(protocol):
         dpg.add_button(label="PTT", pos=(240,423), width=60, height=60, callback=button_callback, user_data={"label": "PTT", "protocol": protocol, "vfo": RADIO_VFO.MIC})
 
      # === Connection Window ===
-    with dpg.window(label="Connection", width=660, height=545, tag="connection_window", no_move=True, no_resize=True):
+    with dpg.window(label="Connection", width=660, height=565, tag="connection_window", no_move=True, no_resize=True):
         dpg.add_spacer(height=5)
         with dpg.group(horizontal=True):
             dpg.add_combo(
@@ -2473,7 +2473,7 @@ async def main():
     if radio.dpg_enabled == True:
         dpg.create_context()
         saved_device = build_gui(protocol)
-        dpg.create_viewport(title="TYT TH9800 CAT Control", width=575, height=580, resizable=False)
+        dpg.create_viewport(title="TYT TH9800 CAT Control", width=575, height=600, resizable=False)
         dpg.setup_dearpygui()
         dpg.show_viewport()
 
