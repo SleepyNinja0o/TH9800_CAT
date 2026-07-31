@@ -111,6 +111,7 @@ echo "[3/4] Installing Python packages ..."
 # It is intentionally skipped here.
 echo "  Skipping 'asyncio' — already built into Python $PY_VER (stdlib)"
 
+"$PIP" install "setuptools"
 "$PIP" install "pyserial==3.5"
 "$PIP" install "pyserial-asyncio==0.6"
 
