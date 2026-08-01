@@ -195,6 +195,10 @@ case "$ARCH" in
         PLAT="linux_x86_64"
         install_dearpygui_prebuilt
         ;;
+    armv6l)
+        PLAT="linux_armv6l"
+        install_dearpygui_from_wheel #|| install_dearpygui_from_source
+        ;;
     armv7l)
         PLAT="linux_armv7l"
         install_dearpygui_from_wheel || install_dearpygui_from_source

@@ -1958,12 +1958,10 @@ async def read_loop(protocol: SerialProtocol):
                     TCP.tcpserver.write(packet+b'\n')
                     await TCP.tcpserver.drain()
                 except Exception as e:
-                    if debug == True:
-                        print(f"Read loop TCP write error: {e}")
+                    printd(f"Read loop TCP write error: {e}")
                 packet_processor = SerialPacket(protocol=protocol).process_rx_packet(packet=packet)
             else:
-                if debug == True:
-                    print(f"Read loop: no TCP (ready={TCP.tcpserver_ready}, server={TCP.tcpserver is not None}), pkt={packet[:6].hex()}")
+                printd(f"Read loop: no TCP (ready={TCP.tcpserver_ready}, server={TCP.tcpserver is not None}), pkt={packet[:6].hex()}")
                 packet_processor = SerialPacket(protocol=protocol).process_rx_packet(packet=packet)
     except asyncio.CancelledError:
         print("Read loop cancelled")
