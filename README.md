@@ -25,8 +25,7 @@ There was no documentation on the remote radio head protocol so I had to reverse
         (Grab some coffee, the build can take a while on lower end boards)<br><br>
          ```
          apt update
-         apt install git cmake python3 python3-dev libglu1-mesa-dev libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
-         pip install setuptools
+         apt install git cmake python3 python3-dev python3-setuptools libglu1-mesa-dev libgl1-mesa-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev
          git clone --recursive https://github.com/hoffstadt/DearPyGui
          cd DearPyGui
          
