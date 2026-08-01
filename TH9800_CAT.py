@@ -47,7 +47,7 @@ def save_config(settings):
         for key in CONFIG_DEFAULTS:
             f.write(f"{key}={settings.get(key, '')}\n")
 
-def save_current_settings():
+def save_serial_settings():
     existing = load_config()
     comport = dpg.get_value("comport")
     device = ""
@@ -56,6 +56,12 @@ def save_current_settings():
     existing.update({
         "baud_rate": dpg.get_value("baud_rate"),
         "device": device,
+    })
+    save_config(existing)
+
+def save_tcp_settings():
+    existing = load_config()
+    existing.update({
         "host": dpg.get_value("tcp_host_text"),
         "port": dpg.get_value("tcp_port_text"),
         "password": dpg.get_value("tcp_pass_text"),
@@ -1507,7 +1513,7 @@ def tcp_connect_callback(sender, app_data, user_data):
     if password == None:
         password = ""
 
-    save_current_settings()
+    save_tcp_settings()
 
     if label == "Start Server":
         tag = "tcp_startserver_button"
@@ -1879,8 +1885,8 @@ def port_selected_callback(sender, app_data, user_data):
             dpg.add_button(label="Ok", width=75, user_data=(modal_id, True), callback=cancel_callback)
         dpg.set_item_pos(modal_id, [120, 100])
         return
-    
-    save_current_settings()
+
+    save_serial_settings()
 
     if not loop.is_running():
         threading.Thread(target=start_event_loop, daemon=True).start()
