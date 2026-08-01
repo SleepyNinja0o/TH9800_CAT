@@ -209,15 +209,7 @@ class TCP:
                                 except: break
                             protocol.buffer.clear()
                             print("Serial disconnected via TCP")
-                            if protocol.radio.dpg_enabled:
-                                dpg.configure_item("connect_button", label="Connect")
-                                dpg.configure_item("dtr_button", show=False)
-                                dpg.configure_item("rts_button", show=False)
-                                dpg.configure_item("rts_text", show=False)
-                                dpg.configure_item("rts_label", show=False)
-                                dpg.configure_item("fp_rts_button", show=False)
-                                dpg.configure_item("fp_rts_text", show=False)
-                                dpg.configure_item("fp_rts_label", show=False)
+                            show_serial_disconnected_ui(protocol.radio)
                             return "serial disconnected"
                         return "serial not connected"
                     elif action == 'connect':
@@ -269,15 +261,7 @@ class TCP:
                             protocol.radio.exe_cmd(cmd=RADIO_TX_CMD.STARTUP)
                             await asyncio.sleep(3)
                             print(f"Serial connected via TCP ({comport} @ {baudrate})")
-                            if protocol.radio.dpg_enabled:
-                                dpg.configure_item("connect_button", label="Disconnect")
-                                dpg.configure_item("rts_button", show=True)
-                                dpg.configure_item("dtr_button", show=True)
-                                dpg.configure_item("rts_text", show=True)
-                                dpg.configure_item("rts_label", show=True)
-                                dpg.configure_item("fp_rts_button", show=True)
-                                dpg.configure_item("fp_rts_text", show=True)
-                                dpg.configure_item("fp_rts_label", show=True)
+                            show_serial_connected_ui(protocol.radio)
                             return "serial connected"
                         except Exception as e:
                             print(f"Serial connect via TCP failed: {e}")
@@ -447,39 +431,15 @@ class TCP:
                             self.tcpclient_server_stop = True
                             break
                         case "rts":
-                            if protocol.radio.dpg_enabled and dpg:
-                                match data:
-                                    case "True":
-                                        dpg.set_value("rts_text", "USB Controlled")
-                                        protocol.radio.set_dpg_theme(tag="rts_text",color="green")
-                                        dpg.set_value("fp_rts_text", "USB Controlled")
-                                        protocol.radio.set_dpg_theme(tag="fp_rts_text",color="green")
-                                    case "False":
-                                        dpg.set_value("rts_text", "Radio Controlled")
-                                        protocol.radio.set_dpg_theme(tag="rts_text",color="red")
-                                        dpg.set_value("fp_rts_text", "Radio Controlled")
-                                        protocol.radio.set_dpg_theme(tag="fp_rts_text",color="red")
+                            if dpg:
+                                protocol.radio.show_rts_state(data == "True")
                         case "dtr":
-                            if protocol.radio.dpg_enabled and dpg:
-                                match data:
-                                    case "True":
-                                        protocol.radio.set_dpg_theme(tag="dtr_button",color="green")
-                                    case "False":
-                                        protocol.radio.set_dpg_theme(tag="dtr_button",color="red")
+                            if dpg:
+                                protocol.radio.show_dtr_state(data == "True")
                     continue
                 else:
                     print(f"RCVD:{message}")
                     continue
-
-                #match cmd:
-                #    case "data":
-                #        protocol.data_received(data=bytearray.fromhex(data))
-                #        print(f"cmd data rcvd: {data}")
-                #    case "exit":
-                #        break
-                #    case _:
-                #        print("Not Found")
-                #        continue
         except (asyncio.IncompleteReadError, ConnectionResetError):
             self.tcpclient = None
             self.tcpclient_ready = False
@@ -660,7 +620,21 @@ class SerialRadio:
             dpg.bind_item_theme(tag, text_theme)
         except Exception as e:
             printd(f"****************Error occurred: {e}****************")
-            
+
+    def show_rts_state(self, state: bool):
+        if self.dpg_enabled == False:
+            return
+        label = "USB Controlled" if state else "Radio Controlled"
+        color = "green" if state else "red"
+        for tag in ("rts_text", "fp_rts_text"):
+            dpg.set_value(tag, label)
+            self.set_dpg_theme(tag=tag, color=color)
+
+    def show_dtr_state(self, state: bool):
+        if self.dpg_enabled == False:
+            return
+        self.set_dpg_theme(tag="dtr_button", color="green" if state else "red")
+
     def set_active_vfo(self, vfo: RADIO_VFO):
         printd(f"Current VFO: {self.vfo_memory['vfo_active']}")
         vfo_name = str(vfo)
@@ -841,19 +815,7 @@ class SerialProtocol(asyncio.Protocol):
             printd(f"RTS state: {self.transport.serial.rts} Setting to {state}")
             self.transport.serial.rts = state
             self._save_rts_state(state)
-        if self.radio.dpg_enabled == False:
-            return
-        match state:
-            case True:
-                dpg.set_value("rts_text", "USB Controlled")
-                self.radio.set_dpg_theme(tag="rts_text",color="green")
-                dpg.set_value("fp_rts_text", "USB Controlled")
-                self.radio.set_dpg_theme(tag="fp_rts_text",color="green")
-            case False:
-                dpg.set_value("rts_text", "Radio Controlled")
-                self.radio.set_dpg_theme(tag="rts_text",color="red")
-                dpg.set_value("fp_rts_text", "Radio Controlled")
-                self.radio.set_dpg_theme(tag="fp_rts_text",color="red")
+        self.radio.show_rts_state(state)
 
     def toggle_rts(self):
         if TCP.tcpclient_ready == True:
@@ -863,19 +825,7 @@ class SerialProtocol(asyncio.Protocol):
             state = not self.transport.serial.rts  #Toggle state
             self.transport.serial.rts = state
             self._save_rts_state(state)
-        if self.radio.dpg_enabled == False:
-            return
-        match state:
-            case True:
-                dpg.set_value("rts_text", "USB Controlled")
-                self.radio.set_dpg_theme(tag="rts_text",color="green")
-                dpg.set_value("fp_rts_text", "USB Controlled")
-                self.radio.set_dpg_theme(tag="fp_rts_text",color="green")
-            case False:
-                dpg.set_value("rts_text", "Radio Controlled")
-                self.radio.set_dpg_theme(tag="rts_text",color="red")
-                dpg.set_value("fp_rts_text", "Radio Controlled")
-                self.radio.set_dpg_theme(tag="fp_rts_text",color="red")
+        self.radio.show_rts_state(state)
 
     def set_dtr(self, state: bool):
         if TCP.tcpclient_ready == True:
@@ -883,13 +833,7 @@ class SerialProtocol(asyncio.Protocol):
         else:
             printd(f"DTR state: {self.transport.serial.dtr} Setting to {state}")
             self.transport.serial.dtr = state
-        if self.radio.dpg_enabled == False:
-            return
-        match state:
-            case True:
-                self.radio.set_dpg_theme(tag="dtr_button",color="green")
-            case False:
-                self.radio.set_dpg_theme(tag="dtr_button",color="red")
+        self.radio.show_dtr_state(state)
 
     def toggle_dtr(self):
         if TCP.tcpclient_ready == True:
@@ -899,13 +843,7 @@ class SerialProtocol(asyncio.Protocol):
             state = not self.transport.serial.dtr  #Toggle state
             printd(f"DTR state: {self.transport.serial.dtr} Setting to {state}")
             self.transport.serial.dtr = state
-        if self.radio.dpg_enabled == False:
-            return
-        match state:
-            case True:
-                self.radio.set_dpg_theme(tag="dtr_button",color="green")
-            case False:
-                self.radio.set_dpg_theme(tag="dtr_button",color="red")
+        self.radio.show_dtr_state(state)
 
     def reset_ready(self):
         self.ready = asyncio.Event()  # Binds to current event loop
@@ -971,18 +909,7 @@ class SerialProtocol(asyncio.Protocol):
         if hasattr(self, '_write_task') and self._write_task and not self._write_task.done():
             self._write_task.cancel()
         # Update UI to reflect disconnected state
-        if self.radio.dpg_enabled:
-            try:
-                dpg.configure_item("connect_button", label="Connect")
-                dpg.configure_item("dtr_button", show=False)
-                dpg.configure_item("rts_button", show=False)
-                dpg.configure_item("rts_text", show=False)
-                dpg.configure_item("rts_label", show=False)
-                dpg.configure_item("fp_rts_button", show=False)
-                dpg.configure_item("fp_rts_text", show=False)
-                dpg.configure_item("fp_rts_label", show=False)
-            except:
-                pass  # UI items may not exist yet
+        show_serial_disconnected_ui(self.radio)
 
     def send_packet(self, data: bytes):
         if (self.transport and not self.transport.is_closing()) or TCP.tcpclient_ready == True:
@@ -1712,6 +1639,35 @@ def refresh_comports_callback(sender, app_data, user_data):
     dpg.configure_item("comport", items=ports)
     dpg.configure_item("comport", default_value=ports[0] if available_ports else "")
 
+def show_serial_connected_ui(radio):
+    """Show the RTS/DTR controls and flip the connect button to "Disconnect"."""
+    if not radio.dpg_enabled:
+        return
+    dpg.configure_item("connect_button", label="Disconnect")
+    dpg.configure_item("rts_button", show=True)
+    dpg.configure_item("dtr_button", show=True)
+    dpg.configure_item("rts_text", show=True)
+    dpg.configure_item("rts_label", show=True)
+    dpg.configure_item("fp_rts_button", show=True)
+    dpg.configure_item("fp_rts_text", show=True)
+    dpg.configure_item("fp_rts_label", show=True)
+
+def show_serial_disconnected_ui(radio):
+    """Hide the RTS/DTR controls and flip the connect button to "Connect"."""
+    if not radio.dpg_enabled:
+        return
+    try:
+        dpg.configure_item("connect_button", label="Connect")
+        dpg.configure_item("dtr_button", show=False)
+        dpg.configure_item("rts_button", show=False)
+        dpg.configure_item("rts_text", show=False)
+        dpg.configure_item("rts_label", show=False)
+        dpg.configure_item("fp_rts_button", show=False)
+        dpg.configure_item("fp_rts_text", show=False)
+        dpg.configure_item("fp_rts_label", show=False)
+    except:
+        pass  # UI items may not exist yet
+
 def cancel_callback(sender, app_data, user_data):
     modal_id = user_data[0] if isinstance(user_data, tuple) else user_data
     dpg.delete_item(modal_id)
@@ -1832,17 +1788,10 @@ async def connect_serial_async(protocol, comport, baudrate, auto_dismiss=False):
             protocol.set_rts(saved_rts)  # update UI to match
             await asyncio.sleep(0.5)
 
+        show_serial_connected_ui(radio)
         if radio.dpg_enabled == True:
-            dpg.configure_item("rts_button", show=True)
-            dpg.configure_item("dtr_button", show=True)
-            dpg.configure_item("rts_text", show=True)
-            dpg.configure_item("rts_label", show=True)
-            dpg.configure_item("fp_rts_button", show=True)
-            dpg.configure_item("fp_rts_text", show=True)
-            dpg.configure_item("fp_rts_label", show=True)
             dpg.configure_item("radio_window", show=True)
             dpg.configure_item("connection_window", collapsed=True)
-            dpg.configure_item("connect_button", label="Disconnect")
         protocol._read_task = asyncio.create_task(read_loop(protocol))
         protocol._write_task = asyncio.create_task(write_loop(protocol))
         if TCP.tcpclient_ready == False:
