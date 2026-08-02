@@ -9,6 +9,7 @@ import directly instead of being hand-ported.
 
 from time import sleep
 import re
+import asyncio
 
 try:
     import logging
