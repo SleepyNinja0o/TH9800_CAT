@@ -3,3 +3,4 @@ venv/
 *.pyc
 DearPyGui/
 config.txt
+wifi_config.py
