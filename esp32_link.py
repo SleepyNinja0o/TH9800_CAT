@@ -21,9 +21,10 @@ async def rx_pump(transport, packet_parser):
             print("RX packet error:", e)
 
 
-def setup(uart_id=2, tx=17, rx=16, baudrate=19200):
-    """Wire up the transport + radio + packet parser and start the
-    background UART tasks. Returns (transport, radio, packet_parser)."""
+def setup(uart_id=2, tx=17, rx=16, baudrate=19200, rigctl_host="0.0.0.0", rigctl_port=4532):
+    """Wire up the transport + radio + packet parser, start the
+    background UART tasks, and start the rigctl TCP server. Returns
+    (transport, radio, packet_parser, rigctl)."""
     transport = UartTransport(uart_id=uart_id, tx=tx, rx=rx, baudrate=baudrate)
 
     radio = rp.SerialRadio(dpg=None, protocol=transport)
@@ -35,4 +36,9 @@ def setup(uart_id=2, tx=17, rx=16, baudrate=19200):
     transport.start()
     asyncio.create_task(rx_pump(transport, packet_parser))
 
-    return transport, radio, packet_parser
+    cat = rp.CATController(radio=radio)
+    radio.cat = cat
+    rigctl = rp.RigctlServer(cat, host=rigctl_host, port=rigctl_port)
+    asyncio.create_task(rigctl.start())
+
+    return transport, radio, packet_parser, rigctl
