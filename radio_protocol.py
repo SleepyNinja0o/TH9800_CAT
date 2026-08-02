@@ -688,7 +688,7 @@ class SerialPacket:
             # Spread values 1–100 evenly over 1–940
             raw_value = round((value / 100) * max_raw)
 
-        return raw_value.to_bytes(2, byteorder='little')
+        return raw_value.to_bytes(2, 'little')
 
     def calculate_checksum(self, payload: bytes):
         """
