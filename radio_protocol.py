@@ -1,12 +1,3 @@
-"""
-Portable radio-protocol core: packet framing/checksum, the TX command
-state machine, and the rigctl/CAT server. No hard dependency on
-anything outside the standard library (DearPyGui and logging are
-imported optionally, purely for the desktop app's live display/log
-file) - this is what the future ESP32/MicroPython firmware will
-import directly instead of being hand-ported.
-"""
-
 from time import sleep
 import re
 import asyncio
@@ -14,12 +5,12 @@ import asyncio
 try:
     import logging
 except ImportError:
-    logging = None  # Not available on MicroPython
+    logging = None
 
 try:
     import dearpygui.dearpygui as dpg
 except ImportError:
-    dpg = None  # Headless mode - no GUI
+    dpg = None
 
 from TH9800_Enums import *
 
@@ -34,17 +25,17 @@ class SerialRadio:
     def __init__(self, dpg: dpg = None, protocol = None):
         self.packet = SerialPacket()
         self.protocol = protocol
-        
+
         self.rigctl_server = False
         self.cat = None
-        
+
         self.dpg = dpg
         self.dpg_enabled = True
-        
+
         self.menu_open = False
         self.connect_process = False
         self.startup = False
-        
+
         self.vfo_memory = {
             'vfo_active': RADIO_VFO.LEFT,
             RADIO_VFO.NONE:{
@@ -53,11 +44,11 @@ class SerialRadio:
             RADIO_VFO.LEFT: {
                 "name": "",
                 "channel": -1,
-                "frequency": 0, # 100.000 MHz
+                "frequency": 0,
                 "mode": "FM",
-                "operating_mode": int(RADIO_VFO_TYPE.MEMORY),   # 0 = VFO mode, 1 = Memory mode
-                "width": 2500,          # 2.5 kHz
-                "ptt": 0,               # PTT off
+                "operating_mode": int(RADIO_VFO_TYPE.MEMORY),
+                "width": 2500,
+                "ptt": 0,
                 "volume": 25,
                 "squelch": 25,
                 "icons": {}
@@ -65,17 +56,17 @@ class SerialRadio:
             RADIO_VFO.RIGHT:{
                 "name": "",
                 "channel": -1,
-                "frequency": 0, # 100.000 MHz
+                "frequency": 0,
                 "mode": "FM",
-                "operating_mode": int(RADIO_VFO_TYPE.MEMORY),   # 0 = VFO mode, 1 = Memory mode
-                "width": 2500,          # 2.5 kHz
-                "ptt": 0,               # PTT off
+                "operating_mode": int(RADIO_VFO_TYPE.MEMORY),
+                "width": 2500,
+                "ptt": 0,
                 "volume": 25,
                 "squelch": 25,
                 "icons": {}
             }
         }
-        
+
         self.vfo_change = False
         self.vfo_active = RADIO_VFO.LEFT
         self.vfo_active_processing = RADIO_VFO.LEFT
@@ -103,7 +94,7 @@ class SerialRadio:
         cmd_name = cmd.name
         cmd_data = cmd.data
         if cmd_name.find("SQUELCH") != -1 or cmd_name.find("VOLUME") != -1:
-            if payload == None: #VOL/SQ payload default value is 25% (0xEB00)
+            if payload == None:
                 return cmd_data
             elif cmd_name.find("SQUELCH") != -1:
                 return (cmd_data[0:9] + payload + bytearray([cmd_data[11]]))
@@ -186,12 +177,12 @@ class SerialRadio:
         if self.vfo_memory['vfo_active'] != vfo:
             printd(f"Set MAIN VFO to {vfo_name}")
             self.exe_cmd(cmd=RADIO_TX_CMD.get(f"{vfo_name}_DIAL_PRESS"))
-        
+
     def _icon_tag_am(self, vfo, vfo_name, icon_name, value):
         return f"icon_l_{icon_name}"
 
     def _icon_tag_busy(self, vfo, vfo_name, icon_name, value):
-        return None  # NOT USED, refer to RADIO_RX_CMD.ICON_BUSY instead
+        return None
 
     def _icon_tag_menu_group(self, vfo, vfo_name, icon_name, value):
         return f"icon_{icon_name}"
@@ -219,9 +210,7 @@ class SerialRadio:
     def set_icon(self, vfo: RADIO_VFO, icon: RADIO_RX_ICON, value):
         vfo_name = str(vfo).lower()
         icon_name = str(icon).lower()
-        #self.icons[vfo][icon_name.upper()] = value
         self.vfo_memory[vfo]['icons'][icon_name.upper()] = value
-        #printd(f"SETICON {vfo_name.upper()}_{icon_name.upper()} = {value}")
 
         handler = self._ICON_TAG_HANDLERS.get(icon, SerialRadio._icon_tag_default)
         tag = handler(self, vfo, vfo_name, icon_name, value)
@@ -237,7 +226,7 @@ class SerialRadio:
                 color = "black"
         else:
             color = "black"
-        
+
         if self.dpg_enabled == True:
             self.set_dpg_theme(tag=tag,color=color)
 
@@ -253,7 +242,7 @@ class SerialRadio:
         payload = self.packet.vol_sq_to_packet(value=vol)
         cmd = RADIO_TX_CMD.get(f"{vfo}_VOLUME")
         self.vfo_memory[self.get_vfo(vfo=vfo)]['volume'] = vol
-        
+
         printd(f"Set {vfo}_VOLUME: {str(vol)}")
         self.exe_cmd(cmd=cmd, payload=payload)
 
@@ -269,7 +258,7 @@ class SerialRadio:
         payload = self.packet.vol_sq_to_packet(value=sq)
         cmd = RADIO_TX_CMD.get(f"{vfo}_SQUELCH")
         self.vfo_memory[self.get_vfo(vfo=vfo)]['squelch'] = sq
-        
+
         printd(f"Set {vfo}_SQUELCH: {str(sq)}")
         self.exe_cmd(cmd=cmd, payload=payload)
 
@@ -297,38 +286,34 @@ class SerialRadio:
     def exe_cmd(self, cmd: RADIO_TX_CMD, payload: bytes = None):
         cmd_name = cmd.name
         cmd_data = self.get_cmd_pkt(cmd=cmd,payload=payload)
-        
+
         if cmd == RADIO_TX_CMD.L_SET_VFO:
             self.set_active_vfo(vfo=RADIO_VFO.LEFT)
             return
         if cmd == RADIO_TX_CMD.R_SET_VFO:
             self.set_active_vfo(vfo=RADIO_VFO.RIGHT)
             return
-        
-        #If MIC PTT(TX) and UP/DOWN/P btn is pressed, ignore it
+
         if self.mic_ptt == True and re.match(r"MIC_(UP|DOWN|P\d+)",cmd_name):
             printd("Ignoring keypress...")
             return
         elif self.mic_ptt == True and (cmd_name.find("MIC") != -1 or cmd_name.find("HM") != -1):
             printd("*****mic_ptt=True, setting 0x00 on MIC btn*****")
-            cmd_data[1] = 0x00 #5th byte changes to 0x00 if MIC button pressed while MIC PTT (TX) is active
+            cmd_data[1] = 0x00
 
         cmd_pkt = self.packet.create_tx_packet(payload=cmd_data)
-        
-        #If above was a button/key press, we need to release button/return control to body
+
         if cmd_name.find("LEFT") == -1 and cmd_name.find("RIGHT") == -1 and cmd_name != "L_VOLUME" and cmd_name != "L_SQUELCH" and cmd_name != "R_VOLUME" and cmd_name != "R_SQUELCH":
             if cmd_name == "MIC_PTT" and self.mic_ptt == True:
                 printd("***MIC PTT***")
             elif cmd_name == "MIC_PTT" and self.mic_ptt == False:
-                #Only send DEFAULT/release CMD if MIC PTT btn is pressed again after active MIC PTT
                 cmd_data = self.get_cmd_pkt(cmd=RADIO_TX_CMD.DEFAULT)
                 cmd_pkt = self.packet.create_tx_packet(payload=cmd_data)
                 self.mic_ptt_disabled = True
             elif (cmd_name.find("MIC") != -1 or cmd_name.find("HM") != -1) and self.mic_ptt == True:
                 self.protocol.send_packet(cmd_pkt)
                 sleep(.25)
-                
-                #MIC PTT cmd is replayed after a MIC button is pressed during active MIC PTT (TX)
+
                 printd(f"MIC pkt: {cmd_pkt.hex().upper()}")
                 cmd_data = self.get_cmd_pkt(cmd=RADIO_TX_CMD.MIC_PTT)
                 cmd_pkt = self.packet.create_tx_packet(payload=cmd_data)
@@ -339,7 +324,7 @@ class SerialRadio:
                 cmd_data2 = self.get_cmd_pkt(cmd=RADIO_TX_CMD.DEFAULT)
                 cmd_pkt2 = self.packet.create_tx_packet(payload=cmd_data2)
                 cmd_pkt = cmd_pkt2
-        
+
         self.protocol.send_packet(cmd_pkt)
 
 def update_signal(radio: SerialRadio, vfo: RADIO_VFO, s_value: int):
@@ -349,7 +334,7 @@ def update_signal(radio: SerialRadio, vfo: RADIO_VFO, s_value: int):
     if s_value == 0:
         percent = 0
     else:
-        percent = (s_value - 1) / 8  # Map S1–S9 to 0.0–1.0 range
+        percent = (s_value - 1) / 8
     if radio.dpg_enabled == True:
         dpg.set_value(f"icon_{vfo2}_signal", percent)
         dpg.configure_item(f"icon_{vfo2}_signal",overlay=f"S{s_value}")
@@ -357,11 +342,11 @@ def update_signal(radio: SerialRadio, vfo: RADIO_VFO, s_value: int):
 class SerialPacket:
     def __init__(self, protocol: "SerialProtocol" = None):
         self.start_bytes = bytes([0xAA,0xFD])
-        self.packet = b''  # Empty payload by default
+        self.packet = b''
         self.protocol = protocol
         if protocol != None:
             self.radio = protocol.radio
-        
+
         self.display_packets_icon_map = (
             {},
             {},
@@ -377,14 +362,14 @@ class SerialPacket:
         Create a TX packet with start bytes, payload length, and checksum.
         """
         packet_length = len(payload)
-        packet = self.start_bytes + bytes([packet_length]) + payload  # Start bytes + length byte + payload + checksum
+        packet = self.start_bytes + bytes([packet_length]) + payload
         checksum = self.calculate_checksum(packet[2:])
         packet += bytes([checksum])
         self.packet = packet
         return bytearray(packet)
 
     def format_frequency(self, freq_str):
-        freq_str = str(freq_str)  # ensure it's a string
+        freq_str = str(freq_str)
         if len(freq_str) <= 3:
             return freq_str
         return f"{freq_str[:-3]}.{freq_str[-3:]}"
@@ -491,16 +476,10 @@ class SerialPacket:
             self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.TX, value=False)
             if self.radio.mic_ptt_disabled == True:
                 self.radio.mic_ptt_disabled = False
-                #cmd_pkt = self.create_tx_packet(payload=bytes([0xA0,0x09,0x02]))
-                #self.protocol.send_packet(cmd_pkt)   #Not sure this CMD is needed just yet
-                #printd(f"TX0 pkt: {cmd_pkt.hex().upper()}")
         elif packet_data[0] == 0x01:
             self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.TX, value=True)
             if self.radio.mic_ptt == True:
                 printd("")
-                #cmd_pkt = self.create_tx_packet(payload=bytes([0xA0,0xF9,0x01]))
-                #self.protocol.send_packet(cmd_pkt)   #Not sure this CMD is needed just yet
-                #printd(f"TX1 pkt: {cmd_pkt.hex().upper()}")
         elif packet_data[0] == 0x80:
             self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.TX, value=False)
         elif packet_data[0] == 0x81:
@@ -586,7 +565,6 @@ class SerialPacket:
 
     def _rx_startup_2(self, packet_data):
         if packet_data[0] == 0x00:
-            #Send Vol/Sql for each VFO
             self.radio.exe_cmd(cmd=RADIO_TX_CMD.L_VOLUME_SQUELCH)
             self.radio.exe_cmd(cmd=RADIO_TX_CMD.R_VOLUME_SQUELCH)
 
@@ -623,16 +601,16 @@ class SerialPacket:
             raise ValueError("\nInvalid start bytes.")
 
         packet_length = packet[2]
-        expected_packet_size = 2 + 1 + packet_length + 1  # Start + Length + Payload + Checksum
+        expected_packet_size = 2 + 1 + packet_length + 1
 
         if len(packet) != expected_packet_size:
             raise ValueError("\nIncomplete packet.")
 
-        payload = packet[3:-1]  # Extract payload (skip start bytes and length byte)
+        payload = packet[3:-1]
         self.payload = payload
-        checksum = packet[-1]  # Extract checksum
+        checksum = packet[-1]
         self.checksum = checksum
-        calculated_checksum = self.calculate_checksum(bytes([packet_length])+payload)  # Only checksum the payload
+        calculated_checksum = self.calculate_checksum(bytes([packet_length])+payload)
 
         if calculated_checksum != checksum:
             raise ValueError(f"\nChecksum mismatch: expected {calculated_checksum:02X}, found {checksum:02X}")
@@ -656,10 +634,8 @@ class SerialPacket:
             printd(f"Unknown icon display packet: {packet[0]}")
         if packet[1] == 0x00:
             self.radio.vfo_memory[vfo]['icons']['SIGNAL'] = 0x00
-            #self.radio.icons[vfo]['SIGNAL'] = 0x00
         else:
                 self.radio.vfo_memory[vfo]['icons']['SIGNAL'] = packet[1]
-                #self.radio.icons[vfo]['SIGNAL'] = packet[1]
                 printd(f"SIGNAL PACKET! SIG:{packet[1]}")
         for x in range(2,6+1):
             icon_byte = packet[x]
@@ -681,12 +657,11 @@ class SerialPacket:
         if not (0 <= value <= 100):
             raise ValueError("Value must be >= 0 and <= 100")
 
-        max_raw = 0x03AC #940
+        max_raw = 0x03AC
 
         if value == 0:
             raw_value = 0
         else:
-            # Spread values 1–100 evenly over 1–940
             raw_value = round((value / 100) * max_raw)
 
         return raw_value.to_bytes(2, 'little')
@@ -705,7 +680,7 @@ class SerialPacket:
 
 class RigctlServer:
     def __init__(self, cat_controller, host='127.0.0.1', port=4532):
-        self.cat = cat_controller  # Reference to your CAT controller
+        self.cat = cat_controller
         self.host = host
         self.port = port
         self.server = None
@@ -726,7 +701,6 @@ class RigctlServer:
                 command = data.decode().strip()
                 print(f"Received: {command}")
 
-                # === Use your CAT controller ===
                 if command == '\\get_powerstat':
                     writer.write(b"1\n")
                 elif command == '\\chk_vfo':
@@ -745,7 +719,7 @@ class RigctlServer:
                     except ValueError:
                         writer.write(b"-1\n")
                 elif command == 'g':
-                    op_mode = await self.cat.get_operating_mode()  # 0 = VFO, 1 = Memory
+                    op_mode = await self.cat.get_operating_mode()
                     writer.write(f"{op_mode}\n".encode())
                 elif command.startswith('G '):
                     try:
@@ -809,28 +783,22 @@ class RigctlServer:
 class CATController:
     def __init__(self, radio: SerialRadio):
         self.radio = radio
-        #self.current_vfo = self.radio.vfo_memory['vfo_active']
 
     async def dump_state(self) -> str:
         return (
-        "0\n"  # rigctl protocol version
-        "9800\n"  # rig model (can be any int)
-        "2\n"  # ITU region
+        "0\n"
+        "9800\n"
+        "2\n"
 
-        # RX frequency range (start, end, modes, power range, vfo, ant) 0x83 for modes?? 0x02 for vfo?
         "0.000000 10000000000.000000 0x2ef 5000 50000 0x1 0x0\n"
 
-        # End of RX ranges
         "0 0 0 0 0 0 0\n"
-        # End of TX ranges
         "0 0 0 0 0 0 0\n"
 
-        # Tuning steps: mode mask, step
         "0xef 1\n"
         "0xef 0\n"
-        "0 0\n"  # end of tuning steps
+        "0 0\n"
 
-        # Filter sizes (mode mask, width)
         "0x82 500\n"
         "0x82 200\n"
         "0x82 2000\n"
@@ -843,23 +811,23 @@ class CATController:
         "0x40 160000\n"
         "0x40 120000\n"
         "0x40 200000\n"
-        "0 0\n"  # end of filter sizes
+        "0 0\n"
 
-        "0\n"  # max_rit
-        "0\n"  # max_xit
-        "0\n"  # max_ifshift
+        "0\n"
+        "0\n"
+        "0\n"
 
-        "0\n"  # announces (bitfield)
+        "0\n"
 
-        "0\n"  # preamp list
-        "0\n"  # attenuator list
+        "0\n"
+        "0\n"
 
-        "0\n"         # get_func
-        "0\n"         # set_func
-        "0x40000020\n"  # get_level (SQL | STRENGTH)
-        "0x20\n"      # set_level (SQL)
-        "0\n"         # get_parm
-        "0\n"         # set_parm
+        "0\n"
+        "0\n"
+        "0x40000020\n"
+        "0x20\n"
+        "0\n"
+        "0\n"
         )
 
     async def set_vfo_memory(self, name, value):
@@ -868,7 +836,7 @@ class CATController:
             self.radio.set_active_vfo(vfo=value)
             return
         self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']][name] = value
-        
+
     async def get_vfo_memory(self, name):
         printd(f"rigctl GET {name}")
         vfo_active = self.radio.vfo_memory['vfo_active']
@@ -877,57 +845,41 @@ class CATController:
         printd(f"rigctl GET {name} - VFO: {vfo_active}")
         return self.radio.vfo_memory[vfo_active][name]
 
-    # Operating Mode (VFO/MEMOREY)
     async def get_operating_mode(self) -> int:
         return await self.get_vfo_memory("operating_mode")
-        #return self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]['operating_mode']
 
     async def set_operating_mode(self, mode: int):
         if mode not in (0, 1):
             raise ValueError("Invalid operating mode")
         await self.set_vfo_memory("operating_mode",mode)
-        #self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]['operating_mode'] = mode
 
-    # Channel Name
     async def get_memory_name(self, mem_num: int) -> str:
         memory = await self.get_vfo_memory("name")
-        #memory = self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]['name']
         if not memory:
             return ""
         return memory
 
-    # Frequency
     async def get_frequency(self) -> int:
         return await self.get_vfo_memory("frequency")
-        #return self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["frequency"]
 
     async def set_frequency(self, freq: int):
         printd(f"***Set FREQ: {freq}***")
         self.radio.set_freq(vfo=self.radio.vfo_memory['vfo_active'],freq=str(freq))
         await self.set_vfo_memory("frequency",freq)
-        #self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["frequency"] = freq
 
-    # Mode and bandwidth
     async def get_mode(self) -> tuple:
         return await self.get_vfo_memory("mode"),await self.get_vfo_memory("width")
-        #return vfo["mode"], vfo["width"]
 
     async def set_mode(self, mode: str, width: int):
         await self.set_vfo_memory("mode",mode)
         await self.set_vfo_memory("width",width)
-        #vfo = self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]
-        #vfo["mode"] = "FM"      #RADIO IS SOLO FM
-        #vfo["width"] = width
 
-    # PTT
     async def get_ptt(self) -> int:
         return await self.get_vfo_memory("ptt")
 
     async def set_ptt(self, state: int):
         await self.set_vfo_memory("ptt",state)
-        #self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["ptt"]
 
-    # VFO switching
     _VFO_TO_RIGCTL = {RADIO_VFO.LEFT: "VFOA", RADIO_VFO.RIGHT: "VFOB"}
 
     async def get_vfo(self) -> str:

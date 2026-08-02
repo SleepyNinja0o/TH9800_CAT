@@ -1,12 +1,3 @@
-"""
-ESP32-native UART transport, replacing SerialProtocol's asyncio.Protocol/
-serial_asyncio (neither exists on MicroPython). Same packet-framing/
-checksum state machine as the desktop SerialProtocol.data_received,
-driven by polling machine.UART instead of a transport callback.
-
-ESP32-only -- imports `machine`, which doesn't exist on desktop CPython.
-"""
-
 import asyncio
 from machine import UART
 
@@ -39,7 +30,7 @@ class AsyncQueue:
 
 
 class UartTransport:
-    def __init__(self, uart_id=2, tx=17, rx=16, baudrate=19200):
+    def __init__(self, uart_id=2, tx=26, rx=27, baudrate=19200):
         self.uart = UART(uart_id, baudrate=baudrate, tx=tx, rx=rx)
         self.buffer = bytearray()
         self.receive_queue = AsyncQueue()

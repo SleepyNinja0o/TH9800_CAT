@@ -1,26 +1,9 @@
-"""
-Raw packet relay + control-command server for the ESP32, matching the
-subset of TH9800_CAT.py's TCP.handle_tcpserver_stream protocol still
-needed once the ESP32 is directly wired to the radio: password auth,
-raw packet relay (!data), volume (!vol), PTT (!ptt), and RTS/DTR
-(!rts/!dtr).
-
-RTS/DTR on the desktop toggled a real PySerial control line (used to
-switch a hardware mux between a USB adapter and the radio's own head).
-machine.UART has no equivalent pins, so here they're generic GPIO
-toggles instead -- reserved for whatever gets wired to them later
-(e.g. DTR driving a relay/transistor onto the radio's power button).
-Passing no pin number leaves the command accepted but a no-op.
-"""
-
 import asyncio
 from machine import Pin
 from TH9800_Enums import RADIO_VFO, RADIO_TX_CMD
 
 
 class GpioSignal:
-    """A named, optionally-wired GPIO output with software-tracked state."""
-
     def __init__(self, pin_num=None):
         self.pin = Pin(pin_num, Pin.OUT) if pin_num is not None else None
         self.state = False
@@ -124,30 +107,57 @@ class RelayServer:
 
         try:
             while True:
-                line = await reader.readline()
-                if not line:
+                raw = await reader.readline()
+                if not raw:
                     break
-                message = line[:-1].decode().strip()
+                raw = raw[:-1]  # strip trailing newline, as bytes
+
+                # The desktop client's write_loop sends TX packets as raw
+                # bytes (not hex-encoded !data commands) -- must check for
+                # the start marker before attempting a text decode.
+                if raw.find(b"\xaa\xfd") != -1:
+                    if self._logged_in:
+                        self.transport.send_packet(bytes(raw))
+                    else:
+                        writer.write(b"Unauthorized\n")
+                        await writer.drain()
+                    continue
+
+                message = raw.decode().strip()
                 if not message:
                     continue
+
                 if message[0] != "!":
+                    print("RCVD:", message)
+                    writer.write(("RCVD{" + message + "}\n").encode())
+                    await writer.drain()
                     continue
 
                 sp = message.find(" ")
                 if sp != -1:
                     cmd = message[1:sp]
                     data = message[sp + 1:]
+                    response = "CMD{" + cmd + "[" + data + "]} "
                 else:
                     cmd = message[1:]
                     data = ""
+                    response = "CMD{" + cmd + "} "
 
                 result = await self._process_cmd(cmd, data)
+
                 if result == "return":
-                    writer.write(b"Ok\n")
+                    writer.write((response + "Ok\n").encode())
                     await writer.drain()
                     break
-                writer.write((result + "\n").encode())
-                await writer.drain()
+                elif result == "Login Successful":
+                    # Desktop client expects this unwrapped -- it doesn't
+                    # go through the CMD{...} parsing path.
+                    writer.write(b"Login Successful\n")
+                    await writer.drain()
+                    continue
+                else:
+                    writer.write((response + result + "\n").encode())
+                    await writer.drain()
         except Exception as e:
             print("Relay client error:", e)
         finally:

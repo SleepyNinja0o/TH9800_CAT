@@ -5,19 +5,25 @@ wifi_config.py (gitignored, not committed -- see wifi_config.example.py).
 
 import network
 import time
-
+import gc
 
 def connect(ssid, password, timeout_s=15):
+    gc.collect()
     wlan = network.WLAN(network.STA_IF)
     wlan.active(True)
     if not wlan.isconnected():
+        try:
+            wlan.disconnect()
+        except OSError:
+            pass
+        time.sleep_ms(1000)
         print("Connecting to WiFi:", ssid)
         wlan.connect(ssid, password)
         start = time.ticks_ms()
         while not wlan.isconnected():
             if time.ticks_diff(time.ticks_ms(), start) > timeout_s * 1000:
                 raise RuntimeError("WiFi connection timed out")
-            time.sleep_ms(200)
+            time.sleep_ms(1000)
     ip = wlan.ifconfig()[0]
     print("WiFi connected, IP:", ip)
     return wlan

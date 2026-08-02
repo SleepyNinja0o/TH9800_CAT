@@ -19,10 +19,6 @@ def _relay_password():
 
 
 async def rx_pump(transport, packet_parser, relay=None):
-    """Feed every framed, checksum-valid packet into the protocol/state
-    layer, and (if a relay client is connected) forward the raw packet
-    to it too -- the ESP32 equivalent of the desktop read_loop() calling
-    SerialPacket.process_rx_packet() and forwarding to TCP.tcpserver."""
     while True:
         packet = await transport.receive_queue.get()
         if relay:
@@ -33,13 +29,12 @@ async def rx_pump(transport, packet_parser, relay=None):
             print("RX packet error:", e)
 
 
-def setup(uart_id=2, tx=17, rx=16, baudrate=19200, rigctl_host="0.0.0.0", rigctl_port=4532,
+def setup(uart_id=2, tx=26, rx=27, baudrate=19200, rigctl_host="0.0.0.0", rigctl_port=4532,
           relay_host="0.0.0.0", relay_port=24, rts_pin=None, dtr_pin=None):
     """Wire up the transport + radio + packet parser, start the
     background UART tasks, and start the rigctl + relay TCP servers.
     Returns (transport, radio, packet_parser, rigctl, relay)."""
     transport = UartTransport(uart_id=uart_id, tx=tx, rx=rx, baudrate=baudrate)
-
     radio = rp.SerialRadio(dpg=None, protocol=transport)
     radio.dpg_enabled = False
 

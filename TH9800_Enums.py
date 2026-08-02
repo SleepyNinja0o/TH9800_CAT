@@ -1,12 +1,3 @@
-"""
-Radio protocol constants.
-
-No `enum` module dependency on purpose — MicroPython (the ESP32 target) doesn't
-ship CPython's `enum`, and this file needs to run unmodified on both. Members
-are plain class attributes (so `X.NAME` and `case X.NAME:` keep working) plus a
-`.get(name)` classmethod where dynamic name-based lookup is actually needed.
-"""
-
 __all__ = ["RADIO_VFO", "RADIO_VFO_TYPE", "RADIO_RX_ICON", "RADIO_RX_CMD", "RADIO_TX_CMD"]
 
 
