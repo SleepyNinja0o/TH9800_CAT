@@ -613,7 +613,6 @@ class SerialProtocol(asyncio.Protocol):
         if (self.transport and not self.transport.is_closing()) or TCP.tcpclient_ready == True:
             printd(f"Sending: {data.hex().upper()}")
             self.transmit_queue.put_nowait(data)
-            #self.transport.write(data)
         else:
             print("Transport is not available or already closed.")
 
@@ -780,8 +779,6 @@ def button_callback(sender, app_data, user_data):
             return
         case "GET STATE":
             dpg_notification_window(title="Radio State", message=radio.vfo_memory)
-            #radio.get_freq(vfo=RADIO_VFO.LEFT)
-            #radio.get_freq(vfo=RADIO_VFO.RIGHT)
             return
         case "SET FREQ":
             if radio.vfo_memory[radio.vfo_memory['vfo_active']]['operating_mode'] == int(RADIO_VFO_TYPE.MEMORY):
@@ -1314,7 +1311,6 @@ def build_gui(protocol):
         dpg.add_spacer(height=15)
         
         with dpg.group(horizontal=True):
-            # dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
             comport = ""
             baudrate = ""
             comport = dpg.get_value("comport")
@@ -1324,7 +1320,6 @@ def build_gui(protocol):
             dpg.add_button(label="Toggle RTS", tag="rts_button", show=False, width=100, callback=button_callback, user_data={"label": "Toggle RTS", "protocol": protocol, "vfo": RADIO_VFO.NONE})
             dpg.add_button(label="Enable Debug", tag="debug_button", indent=284, show=True, width=120, callback=button_callback, user_data={"label": "Enable Debug", "protocol": protocol, "vfo": RADIO_VFO.NONE})
 
-        #dpg.add_spacer(height=15)
         with dpg.group(horizontal=True):
             dpg.add_button(label="Toggle DTR", tag="dtr_button", indent=284, show=False, width=120, callback=button_callback, user_data={"label": "Toggle DTR", "protocol": protocol, "vfo": RADIO_VFO.NONE})
 
