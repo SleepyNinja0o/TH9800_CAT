@@ -88,23 +88,15 @@ class SerialRadio:
                 self.vfo_memory[vfo]['icons'].update({f"{icon.name}": False})
             self.vfo_memory[vfo]['icons']['SIGNAL'] = 0
 
+    _VFO_FROM_LETTER = {"L": RADIO_VFO.LEFT, "R": RADIO_VFO.RIGHT}
+
     def get_vfo(self, vfo: str):
-        match vfo.upper():
-            case "L":
-                return RADIO_VFO.LEFT
-            case "R":
-                return RADIO_VFO.RIGHT
-            case _:
-                return RADIO_VFO.LEFT
+        return self._VFO_FROM_LETTER.get(vfo.upper(), RADIO_VFO.LEFT)
+
+    _LETTER_FROM_VFO = {RADIO_VFO.LEFT: "L", RADIO_VFO.RIGHT: "R"}
 
     def get_vfo_str(self, vfo: RADIO_VFO):
-        match vfo:
-            case RADIO_VFO.LEFT:
-                return "L"
-            case RADIO_VFO.RIGHT:
-                return "R"
-            case _:
-                return "L"
+        return self._LETTER_FROM_VFO.get(vfo, "L")
 
     def get_cmd_pkt(self, cmd: RADIO_TX_CMD, payload: bytes = None):
         cmd_name = cmd.name
@@ -119,31 +111,29 @@ class SerialRadio:
         else:
             return cmd_data
 
+    _TOGGLE_VFO_TYPE = {RADIO_VFO_TYPE.MEMORY: RADIO_VFO_TYPE.VFO, RADIO_VFO_TYPE.VFO: RADIO_VFO_TYPE.MEMORY}
+
     def switch_vfo_op_mode(self, vfo: RADIO_VFO):
         return
-        match self.vfo_memory[vfo]['operating_mode']:
-            case RADIO_VFO_TYPE.MEMORY:
-                self.vfo_memory[vfo]['operating_mode'] = int(RADIO_VFO_TYPE.VFO)
-            case RADIO_VFO_TYPE.VFO:
-                self.vfo_memory[vfo]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
+        current = self.vfo_memory[vfo]['operating_mode']
+        if current in self._TOGGLE_VFO_TYPE:
+            self.vfo_memory[vfo]['operating_mode'] = self._TOGGLE_VFO_TYPE[current]
         printd(f"RADIO VFO TYPE0 set to {self.vfo_memory[vfo]['operating_mode']}")
+
+    _THEME_BG_COLORS = {
+        "red": (255, 0, 0, 255),
+        "green": (0, 255, 0, 255),
+        "black": (37, 37, 38, 255),
+        "white": (255, 255, 255, 255),
+        "darkgray": (64, 64, 64, 255),
+    }
 
     def set_dpg_theme_background(self, tag, color):
         if self.dpg_enabled == False:
             return
-        match color:
-            case "red":
-                color_value = (255, 0, 0, 255)
-            case "green":
-                color_value = (0, 255, 0, 255)
-            case "black":
-                color_value = (37, 37, 38, 255)
-            case "white":
-                color_value = (255, 255, 255, 255)
-            case "darkgray":
-                color_value = (64, 64, 64, 255)
-            case _:
-                raise ValueError("\nColor not implemented in set_dpg_theme function.")
+        if color not in self._THEME_BG_COLORS:
+            raise ValueError("\nColor not implemented in set_dpg_theme function.")
+        color_value = self._THEME_BG_COLORS[color]
         with dpg.theme() as input_theme:
             with dpg.theme_component(dpg.mvInputText):
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBg, color_value)
@@ -153,20 +143,19 @@ class SerialRadio:
         except Exception as e:
             printd(f"****************Error occurred: {e}****************")
 
+    _THEME_COLORS = {
+        "red": (255, 0, 0, 255),
+        "green": (0, 255, 0, 255),
+        "black": (37, 37, 38, 255),
+        "white": (255, 255, 255, 255),
+    }
+
     def set_dpg_theme(self, tag, color):
         if self.dpg_enabled == False:
             return
-        match color:
-            case "red":
-                color_value = (255, 0, 0, 255)
-            case "green":
-                color_value = (0, 255, 0, 255)
-            case "black":
-                color_value = (37, 37, 38, 255)
-            case "white":
-                color_value = (255, 255, 255, 255)
-            case _:
-                raise ValueError("\nColor not implemented in set_dpg_theme function.")
+        if color not in self._THEME_COLORS:
+            raise ValueError("\nColor not implemented in set_dpg_theme function.")
+        color_value = self._THEME_COLORS[color]
         with dpg.theme() as text_theme:
             with dpg.theme_component(dpg.mvAll):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, color_value)
@@ -197,28 +186,47 @@ class SerialRadio:
             printd(f"Set MAIN VFO to {vfo_name}")
             self.exe_cmd(cmd=RADIO_TX_CMD.get(f"{vfo_name}_DIAL_PRESS"))
         
+    def _icon_tag_am(self, vfo, vfo_name, icon_name, value):
+        return f"icon_l_{icon_name}"
+
+    def _icon_tag_busy(self, vfo, vfo_name, icon_name, value):
+        return None  # NOT USED, refer to RADIO_RX_CMD.ICON_BUSY instead
+
+    def _icon_tag_menu_group(self, vfo, vfo_name, icon_name, value):
+        return f"icon_{icon_name}"
+
+    def _icon_tag_main(self, vfo, vfo_name, icon_name, value):
+        tag = f"icon_{vfo_name}_{icon_name}"
+        if value == True:
+            self.vfo_memory['vfo_active'] = vfo
+            printd(f"*****MAIN VFO SET TO: {self.vfo_memory['vfo_active']}")
+        return tag
+
+    def _icon_tag_default(self, vfo, vfo_name, icon_name, value):
+        return f"icon_{vfo_name}_{icon_name}"
+
+    _ICON_TAG_HANDLERS = {
+        RADIO_RX_ICON.AM: _icon_tag_am,
+        RADIO_RX_ICON.BUSY: _icon_tag_busy,
+        RADIO_RX_ICON.APO: _icon_tag_menu_group,
+        RADIO_RX_ICON.LOCK: _icon_tag_menu_group,
+        RADIO_RX_ICON.SET: _icon_tag_menu_group,
+        RADIO_RX_ICON.KEY2: _icon_tag_menu_group,
+        RADIO_RX_ICON.MAIN: _icon_tag_main,
+    }
+
     def set_icon(self, vfo: RADIO_VFO, icon: RADIO_RX_ICON, value):
         vfo_name = str(vfo).lower()
         icon_name = str(icon).lower()
         #self.icons[vfo][icon_name.upper()] = value
         self.vfo_memory[vfo]['icons'][icon_name.upper()] = value
         #printd(f"SETICON {vfo_name.upper()}_{icon_name.upper()} = {value}")
-        
-        match icon:
-            case RADIO_RX_ICON.AM:
-                tag = f"icon_l_{icon_name}"
-            case RADIO_RX_ICON.BUSY: #NOT USED, refer to RADIO_RX_CMD.ICON_BUSY instead
-                return
-            case RADIO_RX_ICON.APO | RADIO_RX_ICON.LOCK | RADIO_RX_ICON.SET | RADIO_RX_ICON.KEY2:
-                tag = f"icon_{icon_name}"
-            case RADIO_RX_ICON.MAIN:
-                tag = f"icon_{vfo_name}_{icon_name}"
-                if value == True:
-                    self.vfo_memory['vfo_active'] = vfo
-                    printd(f"*****MAIN VFO SET TO: {self.vfo_memory['vfo_active']}")
-            case _:
-                tag = f"icon_{vfo_name}_{icon_name}"
-        
+
+        handler = self._ICON_TAG_HANDLERS.get(icon, SerialRadio._icon_tag_default)
+        tag = handler(self, vfo, vfo_name, icon_name, value)
+        if tag is None:
+            return
+
         if value == True or value > 0x00:
             color = "red"
         elif value == False or value == 0x00:
@@ -380,6 +388,227 @@ class SerialPacket:
             return freq_str
         return f"{freq_str[:-3]}.{freq_str[-3:]}"
 
+    def _rx_display_text(self, packet_data):
+        self.radio.vfo_text = packet_data[2:8].decode()
+        radio_text = self.radio.vfo_text
+        radio_channel = self.radio.vfo_channel
+        if packet_data[0] == 0x60:
+            printd(f"{str(self.radio.vfo_active_processing)}<***Set Freq Fast [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
+            radio_text = f"*{radio_text}*"
+            self.radio.vfo_text = radio_text
+            if self.radio.dpg_enabled == True:
+                dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",radio_channel)
+                dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
+        elif packet_data[0] in (0x40, 0xC0):
+            if self.radio.vfo_change == True:
+                return
+            elif self.radio.menu_open == True and self.radio.vfo_active_processing == self.radio.vfo_memory['vfo_active'] and self.radio.connect_process == False:
+                printd(f"{str(self.radio.vfo_active_processing)}<***Set Menu [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
+            elif self.radio.connect_process == False:
+                if radio_channel.find("HP") != -1:
+                    printd(f"{str(self.radio.vfo_active_processing)}<***Radio Power [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
+                else:
+                    printd(f"{str(self.radio.vfo_active_processing)}<***Set Channel [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
+                    if self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] != -1:
+                        self.radio.vfo_memory[self.radio.vfo_active_processing]['name'] = radio_text
+                    else:
+                        self.radio.vfo_memory[self.radio.vfo_active_processing]['name'] = ""
+                    if radio_channel.strip() == "":
+                        self.radio.vfo_memory[self.radio.vfo_active_processing]['channel'] = -1
+                    else:
+                        self.radio.vfo_memory[self.radio.vfo_active_processing]['channel'] = int(radio_channel.strip())
+            if self.radio.dpg_enabled == True:
+                dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",radio_channel)
+                dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
+
+    def _rx_channel_text(self, packet_data):
+        if self.radio.vfo_change == True:
+            return
+        self.radio.vfo_channel = packet_data[2:5].decode().strip()
+
+        if packet_data[0] in (0x40, 0x60):
+            if self.radio.menu_open == False:
+                self.radio.vfo_memory[RADIO_VFO.LEFT]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
+                printd(f"****RADIO VFO TYPE1 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
+            if packet_data[0] == 0x60:
+                if self.radio.dpg_enabled == True:
+                    dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",self.radio.vfo_channel)
+        elif packet_data[0] in (0xC0, 0xE0):
+            if self.radio.menu_open == False:
+                self.radio.vfo_memory[RADIO_VFO.RIGHT]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
+                printd(f"****RADIO VFO TYPE1 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
+
+    def _rx_display_change(self, packet_data):
+        if packet_data[0] == 0x43:
+            self.radio.vfo_active_processing = RADIO_VFO.LEFT
+            self.radio.vfo_channel = ""
+            self.radio.vfo_text = ""
+        elif packet_data[0] == 0xC3:
+            self.radio.vfo_active_processing = RADIO_VFO.RIGHT
+            self.radio.vfo_channel = ""
+            self.radio.vfo_text = ""
+        elif packet_data[0] == 0x03:
+            self.radio.vfo_change = False
+        elif packet_data[0] == 0x83:
+            if self.radio.startup == True:
+                self.radio.startup = False
+                printd("*******Startup complete*******\n")
+            self.radio.vfo_change = False
+            if self.radio.connect_process == True:
+                self.radio.connect_process = False
+
+    def _rx_display_icons(self, packet_data):
+        self.process_display_packet(packet=packet_data)
+
+    def _rx_icon_set(self, packet_data):
+        if packet_data[0] == 0x00:
+            if self.radio.menu_open == True:
+                printd(f"{str(self.radio.vfo_memory['vfo_active'])}<***Menu Closed***>{str(self.radio.vfo_memory['vfo_active'])}")
+                self.radio.menu_open = False
+                self.radio.set_icon(vfo=RADIO_VFO.NONE, icon=RADIO_RX_ICON.SET, value=False)
+        elif packet_data[0] == 0x01:
+            printd(f"{str(self.radio.vfo_memory['vfo_active'])}<***Menu Opened***>{str(self.radio.vfo_memory['vfo_active'])}")
+            self.radio.menu_open = True
+            self.radio.set_icon(vfo=RADIO_VFO.NONE, icon=RADIO_RX_ICON.SET, value=True)
+
+    def _rx_icon_main(self, packet_data):
+        if packet_data[0] == 0x01:
+            self.radio.vfo_memory['vfo_active'] = RADIO_VFO.LEFT
+            self.radio.vfo_change = True
+            printd(f"{str(self.radio.vfo_memory['vfo_active'])}<***Left  VFO Activated***>{str(self.radio.vfo_memory['vfo_active'])}")
+            self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.MAIN, value=False)
+            self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.MAIN, value=True)
+        elif packet_data[0] == 0x81:
+            self.radio.vfo_memory['vfo_active'] = RADIO_VFO.RIGHT
+            self.radio.vfo_change = True
+            printd(f"{str(self.radio.vfo_memory['vfo_active'])}<***Right VFO Activated***>{str(self.radio.vfo_memory['vfo_active'])}")
+            self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.MAIN, value=True)
+            self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.MAIN, value=False)
+
+    def _rx_icon_tx(self, packet_data):
+        if packet_data[0] == 0x00:
+            self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.TX, value=False)
+            if self.radio.mic_ptt_disabled == True:
+                self.radio.mic_ptt_disabled = False
+                #cmd_pkt = self.create_tx_packet(payload=bytes([0xA0,0x09,0x02]))
+                #self.protocol.send_packet(cmd_pkt)   #Not sure this CMD is needed just yet
+                #printd(f"TX0 pkt: {cmd_pkt.hex().upper()}")
+        elif packet_data[0] == 0x01:
+            self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.TX, value=True)
+            if self.radio.mic_ptt == True:
+                printd("")
+                #cmd_pkt = self.create_tx_packet(payload=bytes([0xA0,0xF9,0x01]))
+                #self.protocol.send_packet(cmd_pkt)   #Not sure this CMD is needed just yet
+                #printd(f"TX1 pkt: {cmd_pkt.hex().upper()}")
+        elif packet_data[0] == 0x80:
+            self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.TX, value=False)
+        elif packet_data[0] == 0x81:
+            self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.TX, value=True)
+
+    def _rx_icon_busy(self, packet_data):
+        if packet_data[0] == 0x00:
+            self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.SIGNAL, value=False)
+        elif packet_data[0] == 0x01:
+            self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.SIGNAL, value=True)
+        elif packet_data[0] == 0x80:
+            self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.SIGNAL, value=False)
+        elif packet_data[0] == 0x81:
+            self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.SIGNAL, value=True)
+
+    def _rx_icon_sig_bars(self, packet_data):
+        sig = packet_data[0]
+        if sig >= 0x00 and sig <= 0x09:
+            update_signal(radio=self.radio,vfo=RADIO_VFO.LEFT,s_value=sig)
+        elif sig >= 0x80 and sig <= 0x89:
+            sig = sig - 0x80
+            update_signal(radio=self.radio,vfo=RADIO_VFO.RIGHT,s_value=sig)
+        else:
+            printd(f"OSIG: {sig}")
+
+    def _rx_icon_dot_1st(self, packet_data):
+        radio_text_fast = False
+        radio_text = self.radio.vfo_text
+        if radio_text.find("*") != -1:
+            radio_text_fast = True
+            radio_text = radio_text.replace("*","")
+        radio_text_formatted = self.format_frequency(radio_text).strip()
+        if radio_text_fast == True:
+            radio_text_formatted = f"*{radio_text_formatted}*"
+        if packet_data[0] == 0x40:
+            self.radio.vfo_active_processing = RADIO_VFO.LEFT
+            if self.radio.menu_open == False:
+                self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
+                printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
+            if self.radio.dpg_enabled == True:
+                dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
+        elif packet_data[0] == 0x41:
+            self.radio.vfo_active_processing = RADIO_VFO.LEFT
+            if self.radio.menu_open == False:
+                self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.VFO)
+                printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
+                try:
+                    self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(self.radio.vfo_text)*1000)
+                except:
+                    self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = str(int(-1))
+                    self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(-1))
+                printd(f"Freq set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency']} for {self.radio.vfo_active_processing}")
+            if self.radio.dpg_enabled == True:
+                dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text_formatted)
+        elif packet_data[0] == 0xC0:
+            self.radio.vfo_active_processing = RADIO_VFO.RIGHT
+            if self.radio.menu_open == False:
+                self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
+                printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
+            if self.radio.dpg_enabled == True:
+                dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
+        elif packet_data[0] == 0xC1:
+            self.radio.vfo_active_processing = RADIO_VFO.RIGHT
+            if self.radio.menu_open == False:
+                self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.VFO)
+                printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
+                try:
+                    self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(self.radio.vfo_text)*1000)
+                except:
+                    self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = str(int(-1))
+                    self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(-1))
+                printd(f"Freq set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency']} for {self.radio.vfo_active_processing}")
+            if self.radio.dpg_enabled == True:
+                dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text_formatted)
+
+    def _rx_startup_1(self, packet_data):
+        if packet_data[0] == 0x00:
+            if self.radio.startup == False:
+                self.radio.startup = True
+                self.radio.connect_process = False
+                printd("\n*******Startup initiated*******")
+            self.protocol.send_packet(self.create_tx_packet(payload=bytes([0xF0])))
+
+    def _rx_startup_2(self, packet_data):
+        if packet_data[0] == 0x00:
+            #Send Vol/Sql for each VFO
+            self.radio.exe_cmd(cmd=RADIO_TX_CMD.L_VOLUME_SQUELCH)
+            self.radio.exe_cmd(cmd=RADIO_TX_CMD.R_VOLUME_SQUELCH)
+
+    def _rx_startup_3(self, packet_data):
+        if packet_data[0] == 0x20:
+            self.protocol.send_packet(self.create_tx_packet(payload=bytes([0xA0,0x18,0x02])))
+
+    _RX_DISPATCH = {
+        RADIO_RX_CMD.DISPLAY_TEXT: _rx_display_text,
+        RADIO_RX_CMD.CHANNEL_TEXT: _rx_channel_text,
+        RADIO_RX_CMD.DISPLAY_CHANGE: _rx_display_change,
+        RADIO_RX_CMD.DISPLAY_ICONS: _rx_display_icons,
+        RADIO_RX_CMD.ICON_SET: _rx_icon_set,
+        RADIO_RX_CMD.ICON_MAIN: _rx_icon_main,
+        RADIO_RX_CMD.ICON_TX: _rx_icon_tx,
+        RADIO_RX_CMD.ICON_BUSY: _rx_icon_busy,
+        RADIO_RX_CMD.ICON_SIG_BARS: _rx_icon_sig_bars,
+        RADIO_RX_CMD.ICON_DOT_1ST: _rx_icon_dot_1st,
+        RADIO_RX_CMD.STARTUP_1: _rx_startup_1,
+        RADIO_RX_CMD.STARTUP_2: _rx_startup_2,
+        RADIO_RX_CMD.STARTUP_3: _rx_startup_3,
+    }
+
     def process_rx_packet(self, packet: bytes):
         """
         Parse an RX packet: validate checksum and extract payload.
@@ -406,231 +635,28 @@ class SerialPacket:
 
         if calculated_checksum != checksum:
             raise ValueError(f"\nChecksum mismatch: expected {calculated_checksum:02X}, found {checksum:02X}")
-        
+
         packet_cmd = packet[3]
         packet_data = packet[4:-1]
-        match packet_cmd:
-            case RADIO_RX_CMD.DISPLAY_TEXT:
-                self.radio.vfo_text = packet_data[2:8].decode()
-                radio_text = self.radio.vfo_text
-                radio_channel = self.radio.vfo_channel
-                match packet_data[0]:
-                    case 0x60:
-                        printd(f"{str(self.radio.vfo_active_processing)}<***Set Freq Fast [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
-                        radio_text = f"*{radio_text}*"
-                        self.radio.vfo_text = radio_text
-                        if self.radio.dpg_enabled == True:
-                            dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",radio_channel)
-                            dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
-                    case 0x40 | 0xC0:
-                        if self.radio.vfo_change == True:
-                            return
-                        elif self.radio.menu_open == True and self.radio.vfo_active_processing == self.radio.vfo_memory['vfo_active'] and self.radio.connect_process == False:
-                            printd(f"{str(self.radio.vfo_active_processing)}<***Set Menu [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
-                        elif self.radio.connect_process == False:
-                            if radio_channel.find("HP") != -1:
-                                printd(f"{str(self.radio.vfo_active_processing)}<***Radio Power [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
-                            else:
-                                printd(f"{str(self.radio.vfo_active_processing)}<***Set Channel [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
-                                if self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] != -1:
-                                    self.radio.vfo_memory[self.radio.vfo_active_processing]['name'] = radio_text
-                                else:
-                                    self.radio.vfo_memory[self.radio.vfo_active_processing]['name'] = ""
-                                if radio_channel.strip() == "":
-                                    self.radio.vfo_memory[self.radio.vfo_active_processing]['channel'] = -1
-                                else:
-                                    self.radio.vfo_memory[self.radio.vfo_active_processing]['channel'] = int(radio_channel.strip())
-                        if self.radio.dpg_enabled == True:
-                            dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",radio_channel)
-                            dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
-            case RADIO_RX_CMD.CHANNEL_TEXT:
-                if self.radio.vfo_change == True:
-                    return
-                self.radio.vfo_channel = packet_data[2:5].decode().strip()
-
-                match packet_data[0]:
-                    case 0x40 | 0x60:
-                        if self.radio.menu_open == False:
-                            self.radio.vfo_memory[RADIO_VFO.LEFT]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
-                            printd(f"****RADIO VFO TYPE1 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
-                        if packet_data[0] == 0x60:
-                            if self.radio.dpg_enabled == True:
-                                dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",self.radio.vfo_channel)
-                    case 0xC0 | 0xE0:
-                        if self.radio.menu_open == False:
-                            self.radio.vfo_memory[RADIO_VFO.RIGHT]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
-                            printd(f"****RADIO VFO TYPE1 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
-            case RADIO_RX_CMD.DISPLAY_CHANGE:
-                match packet_data[0]:
-                    case 0x43:
-                        self.radio.vfo_active_processing = RADIO_VFO.LEFT
-                        self.radio.vfo_channel = ""
-                        self.radio.vfo_text = ""
-                    case 0xC3:
-                        self.radio.vfo_active_processing = RADIO_VFO.RIGHT
-                        self.radio.vfo_channel = ""
-                        self.radio.vfo_text = ""
-                    case 0x03:
-                        self.radio.vfo_change = False
-                    case 0x83:
-                        if self.radio.startup == True:
-                            self.radio.startup = False
-                            printd("*******Startup complete*******\n")
-                        self.radio.vfo_change = False
-                        if self.radio.connect_process == True:
-                            self.radio.connect_process = False
-            case RADIO_RX_CMD.DISPLAY_ICONS:
-                self.process_display_packet(packet=packet_data)
-            case RADIO_RX_CMD.ICON_SET:
-                match packet_data[0]:
-                    case 0x00:
-                        if self.radio.menu_open == True:
-                            printd(f"{str(self.radio.vfo_memory['vfo_active'])}<***Menu Closed***>{str(self.radio.vfo_memory['vfo_active'])}")
-                            self.radio.menu_open = False
-                            self.radio.set_icon(vfo=RADIO_VFO.NONE, icon=RADIO_RX_ICON.SET, value=False)
-                    case 0x01:
-                        printd(f"{str(self.radio.vfo_memory['vfo_active'])}<***Menu Opened***>{str(self.radio.vfo_memory['vfo_active'])}")
-                        self.radio.menu_open = True
-                        self.radio.set_icon(vfo=RADIO_VFO.NONE, icon=RADIO_RX_ICON.SET, value=True)
-            case RADIO_RX_CMD.ICON_MAIN:
-                match packet_data[0]:
-                    case 0x01:
-                        self.radio.vfo_memory['vfo_active'] = RADIO_VFO.LEFT
-                        self.radio.vfo_change = True
-                        printd(f"{str(self.radio.vfo_memory['vfo_active'])}<***Left  VFO Activated***>{str(self.radio.vfo_memory['vfo_active'])}")
-                        self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.MAIN, value=False)
-                        self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.MAIN, value=True)
-                    case 0x81:
-                        self.radio.vfo_memory['vfo_active'] = RADIO_VFO.RIGHT
-                        self.radio.vfo_change = True
-                        printd(f"{str(self.radio.vfo_memory['vfo_active'])}<***Right VFO Activated***>{str(self.radio.vfo_memory['vfo_active'])}")
-                        self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.MAIN, value=True)
-                        self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.MAIN, value=False)
-            case RADIO_RX_CMD.ICON_TX:
-                match packet_data[0]:
-                    case 0x00:
-                        self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.TX, value=False)
-                        if self.radio.mic_ptt_disabled == True:
-                            self.radio.mic_ptt_disabled = False
-                            #cmd_pkt = self.create_tx_packet(payload=bytes([0xA0,0x09,0x02]))
-                            #self.protocol.send_packet(cmd_pkt)   #Not sure this CMD is needed just yet
-                            #printd(f"TX0 pkt: {cmd_pkt.hex().upper()}")
-                    case 0x01:
-                        self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.TX, value=True)
-                        if self.radio.mic_ptt == True:
-                            printd("")
-                            #cmd_pkt = self.create_tx_packet(payload=bytes([0xA0,0xF9,0x01]))
-                            #self.protocol.send_packet(cmd_pkt)   #Not sure this CMD is needed just yet
-                            #printd(f"TX1 pkt: {cmd_pkt.hex().upper()}")
-                    case 0x80:
-                        self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.TX, value=False)
-                    case 0x81:
-                        self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.TX, value=True)
-            case RADIO_RX_CMD.ICON_BUSY:
-                match packet_data[0]:
-                    case 0x00:
-                        self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.SIGNAL, value=False)
-                    case 0x01:
-                        self.radio.set_icon(vfo=RADIO_VFO.LEFT, icon=RADIO_RX_ICON.SIGNAL, value=True)
-                    case 0x80:
-                        self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.SIGNAL, value=False)
-                    case 0x81:
-                        self.radio.set_icon(vfo=RADIO_VFO.RIGHT, icon=RADIO_RX_ICON.SIGNAL, value=True)
-            case RADIO_RX_CMD.ICON_SIG_BARS:
-                sig = packet_data[0]
-                if sig >= 0x00 and sig <= 0x09:
-                    update_signal(radio=self.radio,vfo=RADIO_VFO.LEFT,s_value=sig)
-                elif sig >= 0x80 and sig <= 0x89:
-                    sig = sig - 0x80
-                    update_signal(radio=self.radio,vfo=RADIO_VFO.RIGHT,s_value=sig)
-                else:
-                    printd(f"OSIG: {sig}")
-            case RADIO_RX_CMD.ICON_DOT_1ST:
-                radio_text_fast = False
-                radio_text = self.radio.vfo_text
-                if radio_text.find("*") != -1:
-                    radio_text_fast = True
-                    radio_text = radio_text.replace("*","")
-                radio_text_formatted = self.format_frequency(radio_text).strip()
-                if radio_text_fast == True:
-                    radio_text_formatted = f"*{radio_text_formatted}*"
-                match packet_data[0]:
-                    case 0x40:
-                        self.radio.vfo_active_processing = RADIO_VFO.LEFT
-                        if self.radio.menu_open == False:
-                            self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
-                            printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
-                        if self.radio.dpg_enabled == True:
-                            dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
-                    case 0x41:
-                        self.radio.vfo_active_processing = RADIO_VFO.LEFT
-                        if self.radio.menu_open == False:
-                            self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.VFO)
-                            printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
-                            try:
-                                self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(self.radio.vfo_text)*1000)
-                            except:
-                                self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = str(int(-1))
-                                self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(-1))
-                            printd(f"Freq set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency']} for {self.radio.vfo_active_processing}")
-                        if self.radio.dpg_enabled == True:
-                            dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text_formatted)
-                    case 0xC0:
-                        self.radio.vfo_active_processing = RADIO_VFO.RIGHT
-                        if self.radio.menu_open == False:
-                            self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
-                            printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
-                        if self.radio.dpg_enabled == True:
-                            dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
-                    case 0xC1:
-                        self.radio.vfo_active_processing = RADIO_VFO.RIGHT
-                        if self.radio.menu_open == False:
-                            self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.VFO)
-                            printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
-                            try:
-                                self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(self.radio.vfo_text)*1000)
-                            except:
-                                self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = str(int(-1))
-                                self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(-1))
-                            printd(f"Freq set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency']} for {self.radio.vfo_active_processing}")
-                        if self.radio.dpg_enabled == True:
-                            dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text_formatted)
-            case RADIO_RX_CMD.STARTUP_1:
-                match packet_data[0]:
-                    case 0x00:
-                        if self.radio.startup == False:
-                            self.radio.startup = True
-                            self.radio.connect_process = False
-                            printd("\n*******Startup initiated*******")
-                        self.protocol.send_packet(self.create_tx_packet(payload=bytes([0xF0])))
-            case RADIO_RX_CMD.STARTUP_2:
-                match packet_data[0]:
-                    case 0x00:
-                        #Send Vol/Sql for each VFO
-                        self.radio.exe_cmd(cmd=RADIO_TX_CMD.L_VOLUME_SQUELCH)
-                        self.radio.exe_cmd(cmd=RADIO_TX_CMD.R_VOLUME_SQUELCH)
-            case RADIO_RX_CMD.STARTUP_3:
-                match packet_data[0]:
-                    case 0x20:
-                        self.protocol.send_packet(self.create_tx_packet(payload=bytes([0xA0,0x18,0x02])))
-            case _:
-                printd(f"Unkown pkt: {packet.hex().upper()}")
+        handler = self._RX_DISPATCH.get(packet_cmd)
+        if handler:
+            handler(self, packet_data)
+        else:
+            printd(f"Unkown pkt: {packet.hex().upper()}")
 
     def process_display_packet(self, packet: bytes):
-        match packet[0]:
-            case 0x40:
-                vfo = RADIO_VFO.LEFT
-                self.radio.vfo_active_processing = vfo
-            case 0xC0:
-                vfo = RADIO_VFO.RIGHT
-                self.radio.vfo_active_processing = vfo
-            case _:
-                printd(f"Unknown icon display packet: {packet[0]}")
-        match packet[1]:
-            case 0x00:
-                self.radio.vfo_memory[vfo]['icons']['SIGNAL'] = 0x00
-                #self.radio.icons[vfo]['SIGNAL'] = 0x00
-            case _:
+        if packet[0] == 0x40:
+            vfo = RADIO_VFO.LEFT
+            self.radio.vfo_active_processing = vfo
+        elif packet[0] == 0xC0:
+            vfo = RADIO_VFO.RIGHT
+            self.radio.vfo_active_processing = vfo
+        else:
+            printd(f"Unknown icon display packet: {packet[0]}")
+        if packet[1] == 0x00:
+            self.radio.vfo_memory[vfo]['icons']['SIGNAL'] = 0x00
+            #self.radio.icons[vfo]['SIGNAL'] = 0x00
+        else:
                 self.radio.vfo_memory[vfo]['icons']['SIGNAL'] = packet[1]
                 #self.radio.icons[vfo]['SIGNAL'] = packet[1]
                 printd(f"SIGNAL PACKET! SIG:{packet[1]}")
@@ -901,23 +927,15 @@ class CATController:
         #self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]["ptt"]
 
     # VFO switching
+    _VFO_TO_RIGCTL = {RADIO_VFO.LEFT: "VFOA", RADIO_VFO.RIGHT: "VFOB"}
+
     async def get_vfo(self) -> str:
         vfo_active = await self.get_vfo_memory("vfo_active")
-        match vfo_active:
-            case RADIO_VFO.LEFT:
-                return "VFOA"
-            case RADIO_VFO.RIGHT:
-                return "VFOB"
-            case _:
-                return "VFOA"
+        return self._VFO_TO_RIGCTL.get(vfo_active, "VFOA")
+
+    _RIGCTL_TO_VFO = {"VFOA": RADIO_VFO.LEFT, "VFOB": RADIO_VFO.RIGHT}
 
     async def set_vfo(self, vfo: str):
         if vfo not in ("VFOA", "VFOB"):
             raise ValueError("Invalid VFO")
-        match vfo:
-            case "VFOA":
-                await self.set_vfo_memory("vfo_active",RADIO_VFO.LEFT)
-            case "VFOB":
-                await self.set_vfo_memory("vfo_active",RADIO_VFO.RIGHT)
-            case _:
-                await self.set_vfo_memory("vfo_active",RADIO_VFO.LEFT)
+        await self.set_vfo_memory("vfo_active", self._RIGCTL_TO_VFO.get(vfo, RADIO_VFO.LEFT))
