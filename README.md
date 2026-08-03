@@ -47,6 +47,7 @@ There was no documentation on the remote radio head protocol so I had to reverse
  - On the older Raspberry Pis (32-bit ARM processors), the application GUI may not start due to the legacy OpenGL version.<br>
    <b>Error:</b>  "Glfw Error 65543: GLX: Failed to create context: GLXBadFBConfig"<br>
    <b>Fix:</b>  Execute the application with these extra args: "MESA_GL_VERSION_OVERRIDE=4.5 MESA_GLSL_VERSION_OVERRIDE=450 ./run.sh"
+    - You can also comment the 1st line and uncomment the 2nd line in the run.sh file for armv6l
 
 ## Hardware Setup
 ![Logic Analyzer](https://github.com/user-attachments/assets/d5947f75-5652-4114-9efd-5413d0a7ce16)
