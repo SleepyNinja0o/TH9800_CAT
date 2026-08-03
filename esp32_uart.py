@@ -98,7 +98,8 @@ class UartTransport:
             try:
                 data = await asyncio.wait_for(self.transmit_queue.get(), 0.1)
                 self.uart.write(data)
-                await asyncio.sleep_ms(150)
+                if bytes(data).hex().find("aafd0c84ffffffff") == -1:
+                    await asyncio.sleep_ms(150)
             except asyncio.TimeoutError:
                 pass
 
