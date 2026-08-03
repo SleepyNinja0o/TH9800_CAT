@@ -2,20 +2,9 @@ from time import sleep
 import re
 import asyncio
 
-try:
-    import logging
-except ImportError:
-    logging = None
-
-try:
-    import dearpygui.dearpygui as dpg
-except ImportError:
-    dpg = None
-
 from TH9800_Enums import *
 
 debug = False
-log = False
 
 def printd(msg):
     if debug == True:
@@ -329,8 +318,8 @@ class SerialRadio:
 
 def update_signal(radio: SerialRadio, vfo: RADIO_VFO, s_value: int):
     vfo2 = vfo.lower()
-    if log == True:
-        logging.info(f'{str(vfo)} sig: {str(s_value)}')
+    if debug == True:
+        printd(f'{str(vfo)} sig: {str(s_value)}')
     if s_value == 0:
         percent = 0
     else:
