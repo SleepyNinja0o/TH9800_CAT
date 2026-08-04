@@ -358,15 +358,18 @@ class SerialPacket:
                 self.radio.vfo_memory[RADIO_VFO.RIGHT]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
                 printd(f"****RADIO VFO TYPE1 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
 
+    def _restore_vfo_text_cache(self, vfo):
+        cached = self.radio.vfo_memory[vfo]
+        self.radio.vfo_channel = str(cached['channel']) if cached['channel'] != -1 else ""
+        self.radio.vfo_text = cached['name']
+
     def _rx_display_change(self, packet_data):
         if packet_data[0] == 0x43:
             self.radio.vfo_active_processing = RADIO_VFO.LEFT
-            self.radio.vfo_channel = ""
-            self.radio.vfo_text = ""
+            self._restore_vfo_text_cache(RADIO_VFO.LEFT)
         elif packet_data[0] == 0xC3:
             self.radio.vfo_active_processing = RADIO_VFO.RIGHT
-            self.radio.vfo_channel = ""
-            self.radio.vfo_text = ""
+            self._restore_vfo_text_cache(RADIO_VFO.RIGHT)
         elif packet_data[0] == 0x03:
             self.radio.vfo_change = False
         elif packet_data[0] == 0x83:
@@ -440,6 +443,15 @@ class SerialPacket:
             printd(f"OSIG: {sig}")
 
     def _rx_icon_dot_1st(self, packet_data):
+        if packet_data[0] in (0x40, 0x41):
+            new_vfo = RADIO_VFO.LEFT
+        elif packet_data[0] in (0xC0, 0xC1):
+            new_vfo = RADIO_VFO.RIGHT
+        else:
+            new_vfo = None
+        if new_vfo is not None and new_vfo != self.radio.vfo_active_processing:
+            self._restore_vfo_text_cache(new_vfo)
+
         radio_text_fast = False
         radio_text = self.radio.vfo_text
         if radio_text.find("*") != -1:

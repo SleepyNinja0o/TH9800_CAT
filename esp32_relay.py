@@ -1,19 +1,22 @@
 import asyncio
 from machine import Pin
 from TH9800_Enums import RADIO_VFO, RADIO_TX_CMD
+import esp32_config
 
 
 class GpioSignal:
-    def __init__(self, pin_num=None):
+    def __init__(self, pin_num=None, invert=False, initial=False):
+        self.invert = invert
         self.pin = Pin(pin_num, Pin.OUT) if pin_num is not None else None
-        self.state = False
+        self.state = initial
         if self.pin:
-            self.pin.value(0)
+            self.set(self.state)
 
     def set(self, state: bool):
         self.state = state
         if self.pin:
-            self.pin.value(1 if state else 0)
+            high = (not state) if self.invert else state
+            self.pin.value(1 if high else 0)
 
     def toggle(self):
         self.set(not self.state)
@@ -29,8 +32,14 @@ class RelayServer:
         self.client_writer = None
         self._logged_in = False
         self.server = None
-        self.rts = GpioSignal(rts_pin)
+        rts_state = esp32_config.load_config().get("rts_state", "1") == "1"
+        self.rts = GpioSignal(rts_pin, invert=True, initial=rts_state)
         self.dtr = GpioSignal(dtr_pin)
+
+    def _persist_rts(self):
+        settings = esp32_config.load_config()
+        settings["rts_state"] = "1" if self.rts.state else "0"
+        esp32_config.save_config(settings)
 
     async def start(self):
         self.server = await asyncio.start_server(self._handle_client, self.host, self.port)
@@ -87,6 +96,7 @@ class RelayServer:
                 self.rts.toggle()
             else:
                 self.rts.set(data.strip().lower() in ("true", "1", "on"))
+            self._persist_rts()
             return str(self.rts.state)
         elif cmd == "dtr":
             if data == "" or data is None:

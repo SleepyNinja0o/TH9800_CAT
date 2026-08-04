@@ -87,6 +87,7 @@ CONFIG_DEFAULTS = {
     "port": "",
     "password": "",
     "auto_start_server": "false",
+    "rts_state": "1",
 }
 
 def load_config():
@@ -451,6 +452,13 @@ class TCP:
         writer.write(f"!pass {self.tcpclient_passw}\n".encode())
         await writer.drain()
 
+        radio = protocol.radio
+        radio.exe_cmd(cmd=RADIO_TX_CMD.STARTUP)
+        await asyncio.sleep(0.5)
+        radio.exe_cmd(cmd=RADIO_TX_CMD.L_VOLUME_SQUELCH)
+        await asyncio.sleep(0.5)
+        radio.exe_cmd(cmd=RADIO_TX_CMD.R_VOLUME_SQUELCH)
+
         try:
             while True:
                 data = await reader.readline()
@@ -549,24 +557,16 @@ class SerialProtocol(asyncio.Protocol):
         self._read_task = None
         self._write_task = None
 
-    RTS_STATE_FILE = '/tmp/th9800_rts_state'
-
     def _save_rts_state(self, state):
         """Persist RTS state so it survives restarts."""
-        try:
-            with open(self.RTS_STATE_FILE, 'w') as f:
-                f.write('1' if state else '0')
-        except Exception:
-            pass
+        settings = load_config()
+        settings["rts_state"] = '1' if state else '0'
+        save_config(settings)
 
     @staticmethod
     def _load_rts_state():
         """Load saved RTS state. Returns True (USB Controlled) if no saved state."""
-        try:
-            with open(SerialProtocol.RTS_STATE_FILE, 'r') as f:
-                return f.read().strip() == '1'
-        except Exception:
-            return True  # default: USB Controlled
+        return load_config().get("rts_state") == '1'
 
     def set_rts(self, state: bool):
         if TCP.tcpclient_ready == True:
@@ -929,6 +929,10 @@ async def connect_serial_async(protocol, comport, baudrate, auto_dismiss=False):
             # automatically sends L/R_VOLUME_SQUELCH internally, so sending
             # them here too creates a command storm that locks up the serial
             radio.exe_cmd(cmd=RADIO_TX_CMD.STARTUP)
+            await asyncio.sleep(0.5)
+            radio.exe_cmd(cmd=RADIO_TX_CMD.L_VOLUME_SQUELCH)
+            await asyncio.sleep(0.5)
+            radio.exe_cmd(cmd=RADIO_TX_CMD.R_VOLUME_SQUELCH)
 
         cat_controller = CATController(radio=radio)
         radio.cat = cat_controller
@@ -1044,34 +1048,37 @@ async def write_loop(protocol: SerialProtocol):
 
     try:
         while True:
+            try:
+                data = await asyncio.wait_for(protocol.transmit_queue.get(), timeout=.10) #FIX FOR LINUX FREEZES ON TRANSMIT (Old: #data = await protocol.transmit_queue.get())
+            except asyncio.TimeoutError:
+                continue  # Normal timeout, no data to send
+
+            # Re-check TCP.tcpclient_ready here (not before the wait above) --
+            # deciding the branch before dequeuing left a race where a packet
+            # queued during connect could land while this loop was still
+            # sitting in the wrong (serial) branch from a stale pre-connect
+            # check, hitting "transport closed" below and killing the loop.
             if TCP.tcpclient_ready == True and TCP.tcpclient != None:
                 try:
-                    data = await asyncio.wait_for(protocol.transmit_queue.get(), timeout=.10)
                     printd(f"Send pkt tcp: {data}:{type(data)}")
                     TCP.tcpclient.write(data+b'\n')
                     await TCP.tcpclient.drain()
-                    if data.hex().find("aafd0c84ffffffff") == -1: #If match sq/vol cmd skip sleep
-                        await asyncio.sleep(0.15)
-                except asyncio.TimeoutError:
-                    pass  # Normal timeout, no data to send
                 except (ConnectionError, OSError) as e:
                     print(f"Write loop TCP error: {e}")
                     break
             else:
                 try:
-                    data = await asyncio.wait_for(protocol.transmit_queue.get(), timeout=.10) #FIX FOR LINUX FREEZES ON TRANSMIT (Old: #data = await protocol.transmit_queue.get())
                     if protocol.transport and not protocol.transport.is_closing():
                         protocol.transport.write(data)
                     else:
                         print("Write loop: transport closed, stopping")
                         break
-                    if data.hex().find("aafd0c84ffffffff") == -1: #If match sq/vol cmd skip sleep
-                        await asyncio.sleep(0.15)
-                except asyncio.TimeoutError:
-                    pass  # Normal timeout, no data to send
                 except (ConnectionError, OSError, serial.SerialException) as e:
                     print(f"Write loop serial error: {e}")
                     break
+
+            if data.hex().find("aafd0c84ffffffff") == -1: #If match sq/vol cmd skip sleep
+                await asyncio.sleep(0.15)
     except asyncio.CancelledError:
         print("Write loop cancelled")
 
