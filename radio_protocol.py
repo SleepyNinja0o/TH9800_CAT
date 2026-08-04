@@ -11,15 +11,14 @@ def printd(msg):
         print(msg)
 
 class SerialRadio:
-    def __init__(self, dpg: dpg = None, protocol = None):
+    def __init__(self, protocol = None, on_update = None):
         self.packet = SerialPacket()
         self.protocol = protocol
 
         self.rigctl_server = False
         self.cat = None
 
-        self.dpg = dpg
-        self.dpg_enabled = True
+        self.on_update = on_update
 
         self.menu_open = False
         self.connect_process = False
@@ -79,6 +78,10 @@ class SerialRadio:
     def get_vfo_str(self, vfo: RADIO_VFO):
         return self._LETTER_FROM_VFO.get(vfo, "L")
 
+    def _notify(self, event, **kwargs):
+        if self.on_update:
+            self.on_update(event, **kwargs)
+
     def get_cmd_pkt(self, cmd: RADIO_TX_CMD, payload: bytes = None):
         cmd_name = cmd.name
         cmd_data = cmd.data
@@ -101,64 +104,14 @@ class SerialRadio:
             self.vfo_memory[vfo]['operating_mode'] = self._TOGGLE_VFO_TYPE[current]
         printd(f"RADIO VFO TYPE0 set to {self.vfo_memory[vfo]['operating_mode']}")
 
-    _THEME_BG_COLORS = {
-        "red": (255, 0, 0, 255),
-        "green": (0, 255, 0, 255),
-        "black": (37, 37, 38, 255),
-        "white": (255, 255, 255, 255),
-        "darkgray": (64, 64, 64, 255),
-    }
-
-    def set_dpg_theme_background(self, tag, color):
-        if self.dpg_enabled == False:
-            return
-        if color not in self._THEME_BG_COLORS:
-            raise ValueError("\nColor not implemented in set_dpg_theme function.")
-        color_value = self._THEME_BG_COLORS[color]
-        with dpg.theme() as input_theme:
-            with dpg.theme_component(dpg.mvInputText):
-                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, color_value)
-        printd(f"SET_INPUT_BG_THEME {tag} -  {color}")
-        try:
-            dpg.bind_item_theme(tag, input_theme)
-        except Exception as e:
-            printd(f"****************Error occurred: {e}****************")
-
-    _THEME_COLORS = {
-        "red": (255, 0, 0, 255),
-        "green": (0, 255, 0, 255),
-        "black": (37, 37, 38, 255),
-        "white": (255, 255, 255, 255),
-    }
-
-    def set_dpg_theme(self, tag, color):
-        if self.dpg_enabled == False:
-            return
-        if color not in self._THEME_COLORS:
-            raise ValueError("\nColor not implemented in set_dpg_theme function.")
-        color_value = self._THEME_COLORS[color]
-        with dpg.theme() as text_theme:
-            with dpg.theme_component(dpg.mvAll):
-                dpg.add_theme_color(dpg.mvThemeCol_Text, color_value)
-        printd(f"SETICONTHEME {tag} -  {color}")
-        try:
-            dpg.bind_item_theme(tag, text_theme)
-        except Exception as e:
-            printd(f"****************Error occurred: {e}****************")
-
     def show_rts_state(self, state: bool):
-        if self.dpg_enabled == False:
-            return
         label = "USB Controlled" if state else "Radio Controlled"
         color = "green" if state else "red"
-        for tag in ("rts_text", "fp_rts_text"):
-            dpg.set_value(tag, label)
-            self.set_dpg_theme(tag=tag, color=color)
+        self._notify("rts_state", label=label, color=color)
 
     def show_dtr_state(self, state: bool):
-        if self.dpg_enabled == False:
-            return
-        self.set_dpg_theme(tag="dtr_button", color="green" if state else "red")
+        color = "green" if state else "red"
+        self._notify("dtr_state", color=color)
 
     def set_active_vfo(self, vfo: RADIO_VFO):
         printd(f"Current VFO: {self.vfo_memory['vfo_active']}")
@@ -216,8 +169,7 @@ class SerialRadio:
         else:
             color = "black"
 
-        if self.dpg_enabled == True:
-            self.set_dpg_theme(tag=tag,color=color)
+        self._notify("icon_color", tag=tag, color=color)
 
     def set_volume(self, vfo: RADIO_VFO, vol: int = 25):
         if vol < 0:
@@ -226,8 +178,7 @@ class SerialRadio:
             vol = 100
 
         vfo = str(vfo)
-        if self.dpg_enabled and dpg:
-            dpg.set_value(f"slider_{vfo.lower()}_volume",vol)
+        self._notify("slider", kind="volume", vfo=vfo, value=vol)
         payload = self.packet.vol_sq_to_packet(value=vol)
         cmd = RADIO_TX_CMD.get(f"{vfo}_VOLUME")
         self.vfo_memory[self.get_vfo(vfo=vfo)]['volume'] = vol
@@ -242,8 +193,7 @@ class SerialRadio:
             sq = 100
 
         vfo = str(vfo)
-        if self.dpg_enabled and dpg:
-            dpg.set_value(f"slider_{vfo.lower()}_squelch",sq)
+        self._notify("slider", kind="squelch", vfo=vfo, value=sq)
         payload = self.packet.vol_sq_to_packet(value=sq)
         cmd = RADIO_TX_CMD.get(f"{vfo}_SQUELCH")
         self.vfo_memory[self.get_vfo(vfo=vfo)]['squelch'] = sq
@@ -324,9 +274,7 @@ def update_signal(radio: SerialRadio, vfo: RADIO_VFO, s_value: int):
         percent = 0
     else:
         percent = (s_value - 1) / 8
-    if radio.dpg_enabled == True:
-        dpg.set_value(f"icon_{vfo2}_signal", percent)
-        dpg.configure_item(f"icon_{vfo2}_signal",overlay=f"S{s_value}")
+    radio._notify("signal", vfo=vfo2, percent=percent, s_value=s_value)
 
 class SerialPacket:
     def __init__(self, protocol: "SerialProtocol" = None):
@@ -371,9 +319,8 @@ class SerialPacket:
             printd(f"{str(self.radio.vfo_active_processing)}<***Set Freq Fast [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
             radio_text = f"*{radio_text}*"
             self.radio.vfo_text = radio_text
-            if self.radio.dpg_enabled == True:
-                dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",radio_channel)
-                dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
+            self.radio._notify("channel_display", vfo=self.radio.vfo_active_processing, channel=radio_channel)
+            self.radio._notify("vfo_display", vfo=self.radio.vfo_active_processing, text=radio_text)
         elif packet_data[0] in (0x40, 0xC0):
             if self.radio.vfo_change == True:
                 return
@@ -392,9 +339,8 @@ class SerialPacket:
                         self.radio.vfo_memory[self.radio.vfo_active_processing]['channel'] = -1
                     else:
                         self.radio.vfo_memory[self.radio.vfo_active_processing]['channel'] = int(radio_channel.strip())
-            if self.radio.dpg_enabled == True:
-                dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",radio_channel)
-                dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
+            self.radio._notify("channel_display", vfo=self.radio.vfo_active_processing, channel=radio_channel)
+            self.radio._notify("vfo_display", vfo=self.radio.vfo_active_processing, text=radio_text)
 
     def _rx_channel_text(self, packet_data):
         if self.radio.vfo_change == True:
@@ -406,8 +352,7 @@ class SerialPacket:
                 self.radio.vfo_memory[RADIO_VFO.LEFT]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
                 printd(f"****RADIO VFO TYPE1 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
             if packet_data[0] == 0x60:
-                if self.radio.dpg_enabled == True:
-                    dpg.set_value(f"ch_{str(self.radio.vfo_active_processing).lower()}_display",self.radio.vfo_channel)
+                self.radio._notify("channel_display", vfo=self.radio.vfo_active_processing, channel=self.radio.vfo_channel)
         elif packet_data[0] in (0xC0, 0xE0):
             if self.radio.menu_open == False:
                 self.radio.vfo_memory[RADIO_VFO.RIGHT]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
@@ -508,8 +453,7 @@ class SerialPacket:
             if self.radio.menu_open == False:
                 self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
                 printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
-            if self.radio.dpg_enabled == True:
-                dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
+            self.radio._notify("vfo_display", vfo=self.radio.vfo_active_processing, text=radio_text)
         elif packet_data[0] == 0x41:
             self.radio.vfo_active_processing = RADIO_VFO.LEFT
             if self.radio.menu_open == False:
@@ -521,15 +465,13 @@ class SerialPacket:
                     self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = str(int(-1))
                     self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(-1))
                 printd(f"Freq set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency']} for {self.radio.vfo_active_processing}")
-            if self.radio.dpg_enabled == True:
-                dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text_formatted)
+            self.radio._notify("vfo_display", vfo=self.radio.vfo_active_processing, text=radio_text_formatted)
         elif packet_data[0] == 0xC0:
             self.radio.vfo_active_processing = RADIO_VFO.RIGHT
             if self.radio.menu_open == False:
                 self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
                 printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
-            if self.radio.dpg_enabled == True:
-                dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text)
+            self.radio._notify("vfo_display", vfo=self.radio.vfo_active_processing, text=radio_text)
         elif packet_data[0] == 0xC1:
             self.radio.vfo_active_processing = RADIO_VFO.RIGHT
             if self.radio.menu_open == False:
@@ -541,8 +483,7 @@ class SerialPacket:
                     self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = str(int(-1))
                     self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(-1))
                 printd(f"Freq set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency']} for {self.radio.vfo_active_processing}")
-            if self.radio.dpg_enabled == True:
-                dpg.set_value(f"vfo_{str(self.radio.vfo_active_processing).lower()}_display",radio_text_formatted)
+            self.radio._notify("vfo_display", vfo=self.radio.vfo_active_processing, text=radio_text_formatted)
 
     def _rx_startup_1(self, packet_data):
         if packet_data[0] == 0x00:

@@ -7,6 +7,68 @@ try:
     import dearpygui.dearpygui as dpg
 except ImportError:
     dpg = None  # Headless mode — no GUI
+
+gui_mode = dpg is not None
+
+_THEME_COLORS = {
+    "red": (255, 0, 0, 255),
+    "green": (0, 255, 0, 255),
+    "black": (37, 37, 38, 255),
+    "white": (255, 255, 255, 255),
+}
+
+_THEME_BG_COLORS = {
+    "red": (255, 0, 0, 255),
+    "green": (0, 255, 0, 255),
+    "black": (37, 37, 38, 255),
+    "white": (255, 255, 255, 255),
+    "darkgray": (64, 64, 64, 255),
+}
+
+def _set_dpg_theme(tag, color):
+    if not gui_mode:
+        return
+    color_value = _THEME_COLORS[color]
+    with dpg.theme() as text_theme:
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_color(dpg.mvThemeCol_Text, color_value)
+    try:
+        dpg.bind_item_theme(tag, text_theme)
+    except Exception as e:
+        printd(f"****************Error occurred: {e}****************")
+
+def _set_dpg_theme_background(tag, color):
+    if not gui_mode:
+        return
+    color_value = _THEME_BG_COLORS[color]
+    with dpg.theme() as input_theme:
+        with dpg.theme_component(dpg.mvInputText):
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, color_value)
+    try:
+        dpg.bind_item_theme(tag, input_theme)
+    except Exception as e:
+        printd(f"****************Error occurred: {e}****************")
+
+def _on_radio_update(event, **kwargs):
+    if not gui_mode:
+        return
+    if event == "rts_state":
+        for tag in ("rts_text", "fp_rts_text"):
+            dpg.set_value(tag, kwargs["label"])
+            _set_dpg_theme(tag=tag, color=kwargs["color"])
+    elif event == "dtr_state":
+        _set_dpg_theme(tag="dtr_button", color=kwargs["color"])
+    elif event == "icon_color":
+        _set_dpg_theme(tag=kwargs["tag"], color=kwargs["color"])
+    elif event == "slider":
+        dpg.set_value(f"slider_{kwargs['vfo'].lower()}_{kwargs['kind']}", kwargs["value"])
+    elif event == "signal":
+        dpg.set_value(f"icon_{kwargs['vfo']}_signal", kwargs["percent"])
+        dpg.configure_item(f"icon_{kwargs['vfo']}_signal", overlay=f"S{kwargs['s_value']}")
+    elif event == "channel_display":
+        dpg.set_value(f"ch_{str(kwargs['vfo']).lower()}_display", kwargs["channel"])
+    elif event == "vfo_display":
+        dpg.set_value(f"vfo_{str(kwargs['vfo']).lower()}_display", kwargs["text"])
 import serial.tools.list_ports,serial_asyncio,asyncio,threading
 import logging,datetime,argparse,platform,ctypes,os,sys
 
@@ -722,14 +784,14 @@ def show_rts_dtr_controls(show: bool):
 
 def show_serial_connected_ui(radio):
     """Show the RTS/DTR controls and flip the connect button to "Disconnect"."""
-    if not radio.dpg_enabled:
+    if not gui_mode:
         return
     dpg.configure_item("connect_button", label="Disconnect")
     show_rts_dtr_controls(True)
 
 def show_serial_disconnected_ui(radio):
     """Hide the RTS/DTR controls and flip the connect button to "Connect"."""
-    if not radio.dpg_enabled:
+    if not gui_mode:
         return
     try:
         dpg.configure_item("connect_button", label="Connect")
@@ -855,7 +917,7 @@ async def connect_serial_async(protocol, comport, baudrate, auto_dismiss=False):
             await asyncio.sleep(0.5)
 
         show_serial_connected_ui(radio)
-        if radio.dpg_enabled == True:
+        if gui_mode == True:
             dpg.configure_item("radio_window", show=True)
             dpg.configure_item("connection_window", collapsed=True)
         protocol._read_task = asyncio.create_task(read_loop(protocol))
@@ -885,7 +947,7 @@ async def connect_serial_async(protocol, comport, baudrate, auto_dismiss=False):
         print(f"Connection failed: {e}")
         if auto_dismiss:
             print(f"Auto-connect skipped: {comport} not available")
-        elif radio.dpg_enabled == True:
+        elif gui_mode == True:
             with dpg.window(label="Connection Failed", modal=True, no_close=True) as modal_id:
                 dpg.add_text(e, wrap=300)
                 dpg.add_button(label="Ok", width=75, user_data=(modal_id, True), callback=cancel_callback)
@@ -1063,7 +1125,7 @@ def build_gui(protocol):
         with dpg.group(horizontal=True):
             dpg.add_text("RTS TX: ", indent=5, tag="fp_rts_label", show=False)
             dpg.add_text("USB Controlled", tag="fp_rts_text", show=False)
-            protocol.radio.set_dpg_theme(tag="fp_rts_text", color="green")
+            _set_dpg_theme(tag="fp_rts_text", color="green")
             dpg.add_button(label="Toggle RTS", tag="fp_rts_button", show=False, indent=350, width=100, callback=button_callback, user_data={"label": "Toggle RTS", "protocol": protocol, "vfo": RADIO_VFO.NONE})
         dpg.add_spacer(height=3)
         dpg.add_separator()
@@ -1260,7 +1322,7 @@ def build_gui(protocol):
             dpg.add_spacer(width=130)
             dpg.add_button(label="Set Freq", width=80, callback=button_callback, user_data={"label": "Set Freq", "protocol": protocol,"vfo": RADIO_VFO.NONE})
             dpg.add_input_text(tag="setfreq_text", decimal=True, no_spaces=True, width=80, default_value="")
-            #protocol.radio.set_dpg_theme_background(tag="setfreq_text",color="darkgray")
+            #_set_dpg_theme_background(tag="setfreq_text",color="darkgray")
         with dpg.group(horizontal=True):
             dpg.add_spacer(width=mic_spacer_width)
             for label in ["4", "5", "6", "B"]:
@@ -1327,7 +1389,7 @@ def build_gui(protocol):
         with dpg.group(horizontal=True):
             dpg.add_text("RTS TX: ", indent=5, tag="rts_label", show=False)
             dpg.add_text("USB Controlled", tag="rts_text", show=False)
-            protocol.radio.set_dpg_theme(tag="rts_text",color="green")
+            _set_dpg_theme(tag="rts_text",color="green")
 
         dpg.add_spacer(height=50)
         with dpg.group(horizontal=False):
@@ -1371,7 +1433,7 @@ def build_gui(protocol):
     return device
 
 async def main():
-    global TCP,protocol,is_user_admin
+    global TCP,protocol,is_user_admin,gui_mode
     parser = argparse.ArgumentParser(description="Example Python app with command-line arguments.")
     parser.add_argument('-b', '--baudrate', type=str, help='Radio Baudrate')
     parser.add_argument('-c', '--comport', type=str, help='Radio COM Port')
@@ -1384,7 +1446,7 @@ async def main():
     parser.add_argument('-s', '--start-server', action="store_true", help='Start server')
     args = parser.parse_args()
 
-    radio = SerialRadio(dpg)
+    radio = SerialRadio(on_update=_on_radio_update)
     protocol = SerialProtocol(radio)
     radio.protocol = protocol
 
@@ -1418,7 +1480,7 @@ async def main():
                 password = getpass()
                 if password == None:
                     password = ""
-            radio.dpg_enabled = False
+            gui_mode = False
             print("\nStarting command line server...")
 
             # Single-loop headless: main() runs on the module-level `loop`
@@ -1476,7 +1538,7 @@ async def main():
         else:
             print("A COM Port and Baud Rate are required to start the command line server!")
 
-    if radio.dpg_enabled == True:
+    if gui_mode == True:
         dpg.create_context()
         saved_device = build_gui(protocol)
         dpg.create_viewport(title="TYT TH9800 CAT Control", width=575, height=620, resizable=False)
@@ -1513,7 +1575,7 @@ async def main():
             )
 
     try:
-        if radio.dpg_enabled == True:
+        if gui_mode == True:
             await run_dpg()
         else:
             await asyncio.sleep(30)
@@ -1526,7 +1588,7 @@ async def main():
             except:
                 pass
             protocol.transport.close()
-        if radio.dpg_enabled == True:
+        if gui_mode == True:
             dpg.destroy_context()
 
 _headless_shutdown_event = None  # set by main() once the loop binds it

@@ -35,8 +35,7 @@ def setup(uart_id=2, tx=26, rx=27, baudrate=19200, rigctl_host="0.0.0.0", rigctl
     background UART tasks, and start the rigctl + relay TCP servers.
     Returns (transport, radio, packet_parser, rigctl, relay)."""
     transport = UartTransport(uart_id=uart_id, tx=tx, rx=rx, baudrate=baudrate)
-    radio = rp.SerialRadio(dpg=None, protocol=transport)
-    radio.dpg_enabled = False
+    radio = rp.SerialRadio(protocol=transport)
 
     transport.radio = radio  # SerialPacket.__init__ expects protocol.radio
     packet_parser = rp.SerialPacket(protocol=transport)
