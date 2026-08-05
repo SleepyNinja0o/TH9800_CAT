@@ -25,27 +25,42 @@ _THEME_BG_COLORS = {
     "darkgray": (64, 64, 64, 255),
 }
 
+_text_theme_cache = {}
+_bg_theme_cache = {}
+
+def _get_text_theme(color):
+    theme = _text_theme_cache.get(color)
+    if theme is None:
+        color_value = _THEME_COLORS[color]
+        with dpg.theme() as theme:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, color_value)
+        _text_theme_cache[color] = theme
+    return theme
+
+def _get_bg_theme(color):
+    theme = _bg_theme_cache.get(color)
+    if theme is None:
+        color_value = _THEME_BG_COLORS[color]
+        with dpg.theme() as theme:
+            with dpg.theme_component(dpg.mvInputText):
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBg, color_value)
+        _bg_theme_cache[color] = theme
+    return theme
+
 def _set_dpg_theme(tag, color):
     if not gui_mode:
         return
-    color_value = _THEME_COLORS[color]
-    with dpg.theme() as text_theme:
-        with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_color(dpg.mvThemeCol_Text, color_value)
     try:
-        dpg.bind_item_theme(tag, text_theme)
+        dpg.bind_item_theme(tag, _get_text_theme(color))
     except Exception as e:
         printd(f"****************Error occurred: {e}****************")
 
 def _set_dpg_theme_background(tag, color):
     if not gui_mode:
         return
-    color_value = _THEME_BG_COLORS[color]
-    with dpg.theme() as input_theme:
-        with dpg.theme_component(dpg.mvInputText):
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, color_value)
     try:
-        dpg.bind_item_theme(tag, input_theme)
+        dpg.bind_item_theme(tag, _get_bg_theme(color))
     except Exception as e:
         printd(f"****************Error occurred: {e}****************")
 
