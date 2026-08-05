@@ -24,35 +24,22 @@ class SerialRadio:
         self.connect_process = False
         self.startup = False
 
+        vfo_defaults = {
+            "name": "",
+            "channel": -1,
+            "frequency": 0,
+            "mode": "FM",
+            "operating_mode": int(RADIO_VFO_TYPE.MEMORY),
+            "width": 2500,
+            "ptt": 0,
+            "volume": 25,
+            "squelch": 25,
+        }
         self.vfo_memory = {
             'vfo_active': RADIO_VFO.LEFT,
-            RADIO_VFO.NONE:{
-                "icons": {}
-            },
-            RADIO_VFO.LEFT: {
-                "name": "",
-                "channel": -1,
-                "frequency": 0,
-                "mode": "FM",
-                "operating_mode": int(RADIO_VFO_TYPE.MEMORY),
-                "width": 2500,
-                "ptt": 0,
-                "volume": 25,
-                "squelch": 25,
-                "icons": {}
-            },
-            RADIO_VFO.RIGHT:{
-                "name": "",
-                "channel": -1,
-                "frequency": 0,
-                "mode": "FM",
-                "operating_mode": int(RADIO_VFO_TYPE.MEMORY),
-                "width": 2500,
-                "ptt": 0,
-                "volume": 25,
-                "squelch": 25,
-                "icons": {}
-            }
+            RADIO_VFO.NONE: {"icons": {}},
+            RADIO_VFO.LEFT: dict(vfo_defaults, icons={}),
+            RADIO_VFO.RIGHT: dict(vfo_defaults, icons={}),
         }
 
         self.vfo_change = False
@@ -442,14 +429,19 @@ class SerialPacket:
         else:
             printd(f"OSIG: {sig}")
 
+    _DOT1ST_STATE = {
+        0x40: (RADIO_VFO.LEFT, False),
+        0x41: (RADIO_VFO.LEFT, True),
+        0xC0: (RADIO_VFO.RIGHT, False),
+        0xC1: (RADIO_VFO.RIGHT, True),
+    }
+
     def _rx_icon_dot_1st(self, packet_data):
-        if packet_data[0] in (0x40, 0x41):
-            new_vfo = RADIO_VFO.LEFT
-        elif packet_data[0] in (0xC0, 0xC1):
-            new_vfo = RADIO_VFO.RIGHT
-        else:
-            new_vfo = None
-        if new_vfo is not None and new_vfo != self.radio.vfo_active_processing:
+        state = self._DOT1ST_STATE.get(packet_data[0])
+        if state is None:
+            return
+        new_vfo, is_vfo_mode = state
+        if new_vfo != self.radio.vfo_active_processing:
             self._restore_vfo_text_cache(new_vfo)
 
         radio_text_fast = False
@@ -460,42 +452,20 @@ class SerialPacket:
         radio_text_formatted = self.format_frequency(radio_text).strip()
         if radio_text_fast == True:
             radio_text_formatted = f"*{radio_text_formatted}*"
-        if packet_data[0] == 0x40:
-            self.radio.vfo_active_processing = RADIO_VFO.LEFT
-            if self.radio.menu_open == False:
-                self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
-                printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
-            self.radio._notify("vfo_display", vfo=self.radio.vfo_active_processing, text=radio_text)
-        elif packet_data[0] == 0x41:
-            self.radio.vfo_active_processing = RADIO_VFO.LEFT
-            if self.radio.menu_open == False:
-                self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.VFO)
-                printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
+
+        self.radio.vfo_active_processing = new_vfo
+        if self.radio.menu_open == False:
+            mode = RADIO_VFO_TYPE.VFO if is_vfo_mode else RADIO_VFO_TYPE.MEMORY
+            self.radio.vfo_memory[new_vfo]['operating_mode'] = int(mode)
+            printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[new_vfo]['operating_mode']}")
+            if is_vfo_mode:
                 try:
-                    self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(self.radio.vfo_text)*1000)
+                    self.radio.vfo_memory[new_vfo]['frequency'] = str(int(self.radio.vfo_text)*1000)
                 except:
-                    self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = str(int(-1))
-                    self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(-1))
-                printd(f"Freq set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency']} for {self.radio.vfo_active_processing}")
-            self.radio._notify("vfo_display", vfo=self.radio.vfo_active_processing, text=radio_text_formatted)
-        elif packet_data[0] == 0xC0:
-            self.radio.vfo_active_processing = RADIO_VFO.RIGHT
-            if self.radio.menu_open == False:
-                self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.MEMORY)
-                printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
-            self.radio._notify("vfo_display", vfo=self.radio.vfo_active_processing, text=radio_text)
-        elif packet_data[0] == 0xC1:
-            self.radio.vfo_active_processing = RADIO_VFO.RIGHT
-            if self.radio.menu_open == False:
-                self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = int(RADIO_VFO_TYPE.VFO)
-                printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode']}")
-                try:
-                    self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(self.radio.vfo_text)*1000)
-                except:
-                    self.radio.vfo_memory[self.radio.vfo_active_processing]['operating_mode'] = str(int(-1))
-                    self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency'] = str(int(-1))
-                printd(f"Freq set to {self.radio.vfo_memory[self.radio.vfo_active_processing]['frequency']} for {self.radio.vfo_active_processing}")
-            self.radio._notify("vfo_display", vfo=self.radio.vfo_active_processing, text=radio_text_formatted)
+                    self.radio.vfo_memory[new_vfo]['operating_mode'] = str(int(-1))
+                    self.radio.vfo_memory[new_vfo]['frequency'] = str(int(-1))
+                printd(f"Freq set to {self.radio.vfo_memory[new_vfo]['frequency']} for {new_vfo}")
+        self.radio._notify("vfo_display", vfo=new_vfo, text=radio_text_formatted if is_vfo_mode else radio_text)
 
     def _rx_startup_1(self, packet_data):
         if packet_data[0] == 0x00:
@@ -577,8 +547,8 @@ class SerialPacket:
         if packet[1] == 0x00:
             self.radio.vfo_memory[vfo]['icons']['SIGNAL'] = 0x00
         else:
-                self.radio.vfo_memory[vfo]['icons']['SIGNAL'] = packet[1]
-                printd(f"SIGNAL PACKET! SIG:{packet[1]}")
+            self.radio.vfo_memory[vfo]['icons']['SIGNAL'] = packet[1]
+            printd(f"SIGNAL PACKET! SIG:{packet[1]}")
         for x in range(2,6+1):
             icon_byte = packet[x]
             icon_map = self.display_packets_icon_map[x]
