@@ -32,14 +32,12 @@ class RelayServer:
         self.client_writer = None
         self._logged_in = False
         self.server = None
-        rts_state = esp32_config.load_config().get("rts_state", "1") == "1"
-        self.rts = GpioSignal(rts_pin, invert=True, initial=rts_state)
+        self.rts = GpioSignal(rts_pin, invert=True)
         self.dtr = GpioSignal(dtr_pin)
+        self._apply_rts_default()
 
-    def _persist_rts(self):
-        settings = esp32_config.load_config()
-        settings["rts_state"] = "1" if self.rts.state else "0"
-        esp32_config.save_config(settings)
+    def _apply_rts_default(self):
+        self.rts.set(esp32_config.CONFIG_DEFAULTS["rts_state_default"] == "1")
 
     async def start(self):
         self.server = await asyncio.start_server(self._handle_client, self.host, self.port)
@@ -96,7 +94,6 @@ class RelayServer:
                 self.rts.toggle()
             else:
                 self.rts.set(data.strip().lower() in ("true", "1", "on"))
-            self._persist_rts()
             return str(self.rts.state)
         elif cmd == "dtr":
             if data == "" or data is None:
@@ -162,6 +159,7 @@ class RelayServer:
                 elif result == "Login Successful":
                     # Desktop client expects this unwrapped -- it doesn't
                     # go through the CMD{...} parsing path.
+                    self._apply_rts_default()
                     writer.write(b"Login Successful\n")
                     await writer.drain()
                     continue

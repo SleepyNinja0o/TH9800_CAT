@@ -301,7 +301,11 @@ class SerialPacket:
         self.radio.vfo_text = packet_data[2:8].decode()
         radio_text = self.radio.vfo_text
         radio_channel = self.radio.vfo_channel
-        if packet_data[0] == 0x60:
+        if packet_data[0] == 0x00:
+            self.radio.vfo_active_processing = RADIO_VFO.LEFT
+        elif packet_data[0] == 0x80:
+            self.radio.vfo_active_processing = RADIO_VFO.RIGHT
+        if packet_data[0] in (0x60, 0x00, 0x80):
             printd(f"{str(self.radio.vfo_active_processing)}<***Set Freq Fast [{radio_channel}][{radio_text}]***>{str(self.radio.vfo_active_processing)}")
             radio_text = f"*{radio_text}*"
             self.radio.vfo_text = radio_text
@@ -459,7 +463,7 @@ class SerialPacket:
             printd(f"****RADIO VFO TYPE2 set to {self.radio.vfo_memory[new_vfo]['operating_mode']}")
             if is_vfo_mode:
                 try:
-                    self.radio.vfo_memory[new_vfo]['frequency'] = str(int(self.radio.vfo_text)*1000)
+                    self.radio.vfo_memory[new_vfo]['frequency'] = str(int(radio_text)*1000)
                 except:
                     self.radio.vfo_memory[new_vfo]['operating_mode'] = str(int(-1))
                     self.radio.vfo_memory[new_vfo]['frequency'] = str(int(-1))
