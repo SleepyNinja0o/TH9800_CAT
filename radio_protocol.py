@@ -207,7 +207,7 @@ class SerialRadio:
             cmd_pkt2 = self.packet.create_tx_packet(payload=cmd_data2)
             cmd_pkt_all += cmd_pkt2
             self.protocol.send_packet(cmd_pkt_all)
-            sleep(.15)
+            sleep(.20)
 
     def exe_cmd(self, cmd: RADIO_TX_CMD, payload: bytes = None):
         cmd_name = cmd.name
@@ -248,8 +248,7 @@ class SerialRadio:
                 self.protocol.send_packet(cmd_pkt)
                 sleep(.1)
                 cmd_data2 = self.get_cmd_pkt(cmd=RADIO_TX_CMD.DEFAULT)
-                cmd_pkt2 = self.packet.create_tx_packet(payload=cmd_data2)
-                cmd_pkt = cmd_pkt2
+                cmd_pkt = self.packet.create_tx_packet(payload=cmd_data2)
 
         self.protocol.send_packet(cmd_pkt)
 
