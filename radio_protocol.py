@@ -207,7 +207,7 @@ class SerialRadio:
             cmd_pkt2 = self.packet.create_tx_packet(payload=cmd_data2)
             cmd_pkt_all += cmd_pkt2
             self.protocol.send_packet(cmd_pkt_all)
-            sleep(.20)
+            sleep(.35)
 
     def exe_cmd(self, cmd: RADIO_TX_CMD, payload: bytes = None):
         cmd_name = cmd.name
@@ -599,6 +599,7 @@ class RigctlServer:
         self.host = host
         self.port = port
         self.server = None
+        self.lock_mode = False
 
     async def start(self):
         self.server = await asyncio.start_server(self.handle_client, self.host, self.port)
@@ -620,6 +621,15 @@ class RigctlServer:
                     writer.write(b"1\n")
                 elif command == '\\chk_vfo':
                     writer.write(b"0\n")
+                elif command == '\\get_lock_mode':
+                    writer.write(f"{1 if self.lock_mode else 0}\n".encode())
+                elif command.startswith('\\set_lock_mode'):
+                    try:
+                        state = int(command.split()[1])
+                        self.lock_mode = state != 0
+                        writer.write(b"RPRT 0\n")
+                    except (IndexError, ValueError):
+                        writer.write(b"RPRT -1\n")
                 elif command == '\\dump_state':
                     dump = await self.cat.dump_state()
                     writer.write(dump.encode())
@@ -628,42 +638,46 @@ class RigctlServer:
                     writer.write(f"{freq}\n".encode())
                 elif command.startswith('F '):
                     try:
-                        freq = int(command.split()[1])
+                        freq = int(float(command.split()[1]))
                         await self.cat.set_frequency(freq)
-                        writer.write(b"0\n")
+                        writer.write(b"RPRT 0\n")
                     except ValueError:
-                        writer.write(b"-1\n")
-                elif command == 'g':
-                    op_mode = await self.cat.get_operating_mode()
-                    writer.write(f"{op_mode}\n".encode())
+                        writer.write(b"RPRT -1\n")
+                elif command.startswith('g'):
+                    parts = command.split()
+                    fct = parts[1] if len(parts) > 1 else ""
+                    ch = int(parts[2]) if len(parts) > 2 and parts[2].lstrip('-').isdigit() else 0
+                    ok = await self.cat.scan(fct, ch)
+                    writer.write(b"RPRT 0\n" if ok else b"RPRT -4\n")
                 elif command.startswith('G '):
-                    try:
-                        mode = int(command.split()[1])
-                        await self.cat.set_operating_mode(mode)
-                        writer.write(b"0\n")
-                    except (IndexError, ValueError):
-                        writer.write(b"-1\n")
+                    parts = command.split()
+                    op = parts[1] if len(parts) > 1 else ""
+                    ok = await self.cat.vfo_op(op)
+                    writer.write(b"RPRT 0\n" if ok else b"RPRT -4\n")
                 elif command == 'm':
                     mode, width = await self.cat.get_mode()
-                    writer.write(f"{mode} {width}\n".encode())
+                    writer.write(f"{mode}\n{width}\n".encode())
                 elif command.startswith('M '):
-                    try:
-                        parts = command.split()
-                        mode = parts[1]
-                        width = int(parts[2])
-                        await self.cat.set_mode(mode, width)
-                        writer.write(b"0\n")
-                    except (IndexError, ValueError):
-                        writer.write(b"-1\n")
+                    writer.write(b"RPRT -1\n")
                 elif command.startswith('n '):
                     try:
                         mem_num = int(command.split()[1])
                         name = await self.cat.get_memory_name(mem_num)
                         writer.write(f"{name}\n".encode())
                     except (IndexError, ValueError):
-                        writer.write(b"-1\n")
+                        writer.write(b"RPRT -1\n")
                 elif command == 's':
-                    writer.write(b"0\n")
+                    split, tx_vfo = await self.cat.get_split_vfo()
+                    writer.write(f"{split}\n{tx_vfo}\n".encode())
+                elif command.startswith('S '):
+                    try:
+                        parts = command.split()
+                        split = int(parts[1])
+                        tx_vfo = parts[2]
+                        ok = await self.cat.set_split_vfo(split, tx_vfo)
+                        writer.write(b"RPRT 0\n" if ok else b"RPRT -4\n")
+                    except (IndexError, ValueError):
+                        writer.write(b"RPRT -1\n")
                 elif command == 't':
                     ptt = await self.cat.get_ptt()
                     writer.write(f"{ptt}\n".encode())
@@ -671,9 +685,9 @@ class RigctlServer:
                     try:
                         ptt = int(command.split()[1])
                         await self.cat.set_ptt(ptt)
-                        writer.write(b"0\n")
+                        writer.write(b"RPRT 0\n")
                     except ValueError:
-                        writer.write(b"-1\n")
+                        writer.write(b"RPRT -1\n")
                 elif command == 'q':
                     print(f"Disconnect from {addr}")
                     break
@@ -687,7 +701,7 @@ class RigctlServer:
                     writer.write(f"RPRT 0\n".encode())
                 else:
                     print(f"Unknown command: {command}")
-                    writer.write(b"-1\n")
+                    writer.write(b"RPRT -1\n")
 
                 await writer.drain()
 
@@ -760,14 +774,6 @@ class CATController:
         printd(f"rigctl GET {name} - VFO: {vfo_active}")
         return self.radio.vfo_memory[vfo_active][name]
 
-    async def get_operating_mode(self) -> int:
-        return await self.get_vfo_memory("operating_mode")
-
-    async def set_operating_mode(self, mode: int):
-        if mode not in (0, 1):
-            raise ValueError("Invalid operating mode")
-        await self.set_vfo_memory("operating_mode",mode)
-
     async def get_memory_name(self, mem_num: int) -> str:
         memory = await self.get_vfo_memory("name")
         if not memory:
@@ -783,17 +789,17 @@ class CATController:
         await self.set_vfo_memory("frequency",freq)
 
     async def get_mode(self) -> tuple:
-        return await self.get_vfo_memory("mode"),await self.get_vfo_memory("width")
-
-    async def set_mode(self, mode: str, width: int):
-        await self.set_vfo_memory("mode",mode)
-        await self.set_vfo_memory("width",width)
+        return "FM", 25000
 
     async def get_ptt(self) -> int:
         return await self.get_vfo_memory("ptt")
 
     async def set_ptt(self, state: int):
-        await self.set_vfo_memory("ptt",state)
+        desired = state != 0
+        if desired != self.radio.mic_ptt:
+            self.radio.mic_ptt = desired
+            self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]['ptt'] = 1 if desired else 0
+            self.radio.exe_cmd(cmd=RADIO_TX_CMD.MIC_PTT)
 
     _VFO_TO_RIGCTL = {RADIO_VFO.LEFT: "VFOA", RADIO_VFO.RIGHT: "VFOB"}
 
@@ -807,3 +813,26 @@ class CATController:
         if vfo not in ("VFOA", "VFOB"):
             raise ValueError("Invalid VFO")
         await self.set_vfo_memory("vfo_active", self._RIGCTL_TO_VFO.get(vfo, RADIO_VFO.LEFT))
+
+    async def vfo_op(self, op: str) -> bool:
+        if op == "TOGGLE":
+            vfo_active = self.radio.vfo_memory['vfo_active']
+            new_vfo = RADIO_VFO.RIGHT if vfo_active == RADIO_VFO.LEFT else RADIO_VFO.LEFT
+            self.radio.set_active_vfo(vfo=new_vfo)
+            return True
+        elif op == "UP":
+            self.radio.exe_cmd(cmd=RADIO_TX_CMD.MIC_UP)
+            return True
+        elif op == "DOWN":
+            self.radio.exe_cmd(cmd=RADIO_TX_CMD.MIC_DOWN)
+            return True
+        return False
+
+    async def scan(self, fct: str, ch: int) -> bool:
+        return False
+
+    async def get_split_vfo(self) -> tuple:
+        return "0", await self.get_vfo()
+
+    async def set_split_vfo(self, split: int, vfo: str) -> bool:
+        return split == 0
