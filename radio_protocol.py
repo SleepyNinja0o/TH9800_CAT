@@ -207,7 +207,7 @@ class SerialRadio:
             cmd_pkt2 = self.packet.create_tx_packet(payload=cmd_data2)
             cmd_pkt_all += cmd_pkt2
             self.protocol.send_packet(cmd_pkt_all)
-            sleep(.35)
+            sleep(.4)
 
     def exe_cmd(self, cmd: RADIO_TX_CMD, payload: bytes = None):
         cmd_name = cmd.name
@@ -638,8 +638,9 @@ class RigctlServer:
                     writer.write(f"{freq}\n".encode())
                 elif command.startswith('F '):
                     try:
-                        freq = int(float(command.split()[1]))
-                        await self.cat.set_frequency(freq)
+                        freq_hz = int(float(command.split()[1]))
+                        digits = f"{freq_hz // 1000:06d}"
+                        await self.cat.set_frequency(digits)
                         writer.write(b"RPRT 0\n")
                     except ValueError:
                         writer.write(b"RPRT -1\n")
@@ -706,6 +707,7 @@ class RigctlServer:
                 await writer.drain()
 
         finally:
+            self.lock_mode = False
             writer.close()
             await writer.wait_closed()
 
@@ -783,10 +785,19 @@ class CATController:
     async def get_frequency(self) -> int:
         return await self.get_vfo_memory("frequency")
 
-    async def set_frequency(self, freq: int):
-        printd(f"***Set FREQ: {freq}***")
-        self.radio.set_freq(vfo=self.radio.vfo_memory['vfo_active'],freq=str(freq))
-        await self.set_vfo_memory("frequency",freq)
+    async def set_frequency(self, digits: str):
+        printd(f"***Set FREQ: {digits}***")
+        vfo_active = self.radio.vfo_memory['vfo_active']
+        if self.radio.vfo_memory[vfo_active]['operating_mode'] != int(RADIO_VFO_TYPE.VFO):
+            self.radio.exe_cmd(cmd=RADIO_TX_CMD.get(f"{vfo_active}_VM"))
+            await asyncio.sleep(0.3)
+        for n in digits:
+            cmd_payload = self.radio.get_cmd_pkt(cmd=RADIO_TX_CMD.get(f"MIC_{n}"))
+            cmd_pkt = self.radio.packet.create_tx_packet(payload=cmd_payload)
+            cmd_data2 = self.radio.get_cmd_pkt(cmd=RADIO_TX_CMD.DEFAULT)
+            cmd_pkt2 = self.radio.packet.create_tx_packet(payload=cmd_data2)
+            self.radio.protocol.send_packet(cmd_pkt + cmd_pkt2)
+            await asyncio.sleep(0.4)
 
     async def get_mode(self) -> tuple:
         return "FM", 25000
@@ -809,22 +820,35 @@ class CATController:
 
     _RIGCTL_TO_VFO = {"VFOA": RADIO_VFO.LEFT, "VFOB": RADIO_VFO.RIGHT}
 
+    async def _press_release(self, cmd: RADIO_TX_CMD):
+        cmd_data = self.radio.get_cmd_pkt(cmd=cmd)
+        cmd_pkt = self.radio.packet.create_tx_packet(payload=cmd_data)
+        self.radio.protocol.send_packet(cmd_pkt)
+        await asyncio.sleep(0.1)
+        cmd_data2 = self.radio.get_cmd_pkt(cmd=RADIO_TX_CMD.DEFAULT)
+        cmd_pkt2 = self.radio.packet.create_tx_packet(payload=cmd_data2)
+        self.radio.protocol.send_packet(cmd_pkt2)
+
     async def set_vfo(self, vfo: str):
         if vfo not in ("VFOA", "VFOB"):
             raise ValueError("Invalid VFO")
-        await self.set_vfo_memory("vfo_active", self._RIGCTL_TO_VFO.get(vfo, RADIO_VFO.LEFT))
+        target = self._RIGCTL_TO_VFO.get(vfo, RADIO_VFO.LEFT)
+        printd(f"rigctl SET vfo_active = {target}")
+        if self.radio.vfo_memory['vfo_active'] == target:
+            return
+        await self._press_release(RADIO_TX_CMD.get(f"{target}_DIAL_PRESS"))
 
     async def vfo_op(self, op: str) -> bool:
         if op == "TOGGLE":
             vfo_active = self.radio.vfo_memory['vfo_active']
             new_vfo = RADIO_VFO.RIGHT if vfo_active == RADIO_VFO.LEFT else RADIO_VFO.LEFT
-            self.radio.set_active_vfo(vfo=new_vfo)
+            await self._press_release(RADIO_TX_CMD.get(f"{new_vfo}_DIAL_PRESS"))
             return True
         elif op == "UP":
-            self.radio.exe_cmd(cmd=RADIO_TX_CMD.MIC_UP)
+            await self._press_release(RADIO_TX_CMD.MIC_UP)
             return True
         elif op == "DOWN":
-            self.radio.exe_cmd(cmd=RADIO_TX_CMD.MIC_DOWN)
+            await self._press_release(RADIO_TX_CMD.MIC_DOWN)
             return True
         return False
 
