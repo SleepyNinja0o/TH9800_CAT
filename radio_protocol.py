@@ -622,11 +622,11 @@ class RigctlServer:
                 elif command == '\\chk_vfo':
                     writer.write(b"0\n")
                 elif command == '\\get_lock_mode':
-                    writer.write(f"{1 if self.lock_mode else 0}\n".encode())
+                    writer.write(f"{1 if self.lock_mode else 2}\n".encode())
                 elif command.startswith('\\set_lock_mode'):
                     try:
                         state = int(command.split()[1])
-                        self.lock_mode = state != 0
+                        self.lock_mode = state != 2
                         writer.write(b"RPRT 0\n")
                     except (IndexError, ValueError):
                         writer.write(b"RPRT -1\n")
