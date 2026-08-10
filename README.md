@@ -1,4 +1,6 @@
 # TYT TH-9800 CAT Control via Remote Head Serial Protocol 
+## ESP32 Schematic
+![ESP32 Schematic.bmp](https://github.com/user-attachments/files/30883311/ESP32.Schematic.bmp)
 ## Research
 There was no documentation on the remote radio head protocol so I had to reverse engineer it. Here is what I used:
 - Hardware:
