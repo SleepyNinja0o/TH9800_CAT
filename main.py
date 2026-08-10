@@ -5,7 +5,11 @@ import esp32_config
 
 esp32_wifi.connect_from_config()
 
-transport, radio, packet_parser, rigctl, relay = esp32_link.setup(rts_pin=esp32_config.CONFIG_DEFAULTS["rts_pin"])
+transport, radio, packet_parser, rigctl, relay = esp32_link.setup(
+    tx=esp32_config.CONFIG_DEFAULTS["tx_pin"],
+    rx=esp32_config.CONFIG_DEFAULTS["rx_pin"],
+    rts_pin=esp32_config.CONFIG_DEFAULTS["rts_pin"],
+)
 print('TH9800_CAT server started...')
 
 async def keepalive():
