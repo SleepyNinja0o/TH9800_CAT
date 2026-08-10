@@ -1,10 +1,11 @@
 from time import sleep
 import re
 import asyncio
+import esp32_config
 
 from TH9800_Enums import *
 
-debug = False
+debug = esp32_config.CONFIG_DEFAULTS.get("debug") == "1"
 
 def printd(msg):
     if debug == True:
@@ -600,6 +601,7 @@ class RigctlServer:
         self.port = port
         self.server = None
         self.lock_mode = False
+        self.vfo_opt = False
 
     async def start(self):
         self.server = await asyncio.start_server(self.handle_client, self.host, self.port)
@@ -620,7 +622,13 @@ class RigctlServer:
                 if command == '\\get_powerstat':
                     writer.write(b"1\n")
                 elif command == '\\chk_vfo':
-                    writer.write(b"0\n")
+                    writer.write(f"CHKVFO {1 if self.vfo_opt else 0}\n".encode())
+                elif command.startswith('\\set_vfo_opt'):
+                    try:
+                        self.vfo_opt = int(command.split()[1]) != 0
+                        writer.write(b"RPRT 0\n")
+                    except (IndexError, ValueError):
+                        writer.write(b"RPRT -1\n")
                 elif command == '\\get_lock_mode':
                     writer.write(f"{1 if self.lock_mode else 2}\n".encode())
                 elif command.startswith('\\set_lock_mode'):
@@ -633,29 +641,44 @@ class RigctlServer:
                 elif command == '\\dump_state':
                     dump = await self.cat.dump_state()
                     writer.write(dump.encode())
-                elif command == 'f':
-                    freq = await self.cat.get_frequency()
+                elif command == 'f' or command.startswith('f '):
+                    parts = command.split()
+                    vfo = self.cat._RIGCTL_TO_VFO.get(parts[1]) if self.vfo_opt and len(parts) > 1 else None
+                    freq = await self.cat.get_frequency(vfo=vfo)
                     writer.write(f"{freq}\n".encode())
                 elif command.startswith('F '):
                     try:
-                        freq_hz = int(float(command.split()[1]))
+                        parts = command.split()
+                        if self.vfo_opt:
+                            vfo = self.cat._RIGCTL_TO_VFO.get(parts[1])
+                            freq_hz = int(float(parts[2]))
+                        else:
+                            vfo = None
+                            freq_hz = int(float(parts[1]))
                         digits = f"{freq_hz // 1000:06d}"
-                        await self.cat.set_frequency(digits)
+                        await self.cat.set_frequency(digits, vfo=vfo)
                         writer.write(b"RPRT 0\n")
-                    except ValueError:
+                    except (ValueError, IndexError):
                         writer.write(b"RPRT -1\n")
                 elif command.startswith('g'):
                     parts = command.split()
-                    fct = parts[1] if len(parts) > 1 else ""
-                    ch = int(parts[2]) if len(parts) > 2 and parts[2].lstrip('-').isdigit() else 0
-                    ok = await self.cat.scan(fct, ch)
+                    idx = 2 if self.vfo_opt else 1
+                    vfo = self.cat._RIGCTL_TO_VFO.get(parts[1]) if self.vfo_opt and len(parts) > 1 else None
+                    fct = parts[idx] if len(parts) > idx else ""
+                    ch = int(parts[idx + 1]) if len(parts) > idx + 1 and parts[idx + 1].lstrip('-').isdigit() else 0
+                    ok = await self.cat.scan(fct, ch, vfo=vfo)
                     writer.write(b"RPRT 0\n" if ok else b"RPRT -4\n")
                 elif command.startswith('G '):
                     parts = command.split()
-                    op = parts[1] if len(parts) > 1 else ""
-                    ok = await self.cat.vfo_op(op)
+                    if self.vfo_opt and len(parts) > 2:
+                        vfo = self.cat._RIGCTL_TO_VFO.get(parts[1])
+                        op = parts[2]
+                    else:
+                        vfo = None
+                        op = parts[1] if len(parts) > 1 else ""
+                    ok = await self.cat.vfo_op(op, vfo=vfo)
                     writer.write(b"RPRT 0\n" if ok else b"RPRT -4\n")
-                elif command == 'm':
+                elif command == 'm' or command.startswith('m '):
                     mode, width = await self.cat.get_mode()
                     writer.write(f"{mode}\n{width}\n".encode())
                 elif command.startswith('M '):
@@ -667,27 +690,41 @@ class RigctlServer:
                         writer.write(f"{name}\n".encode())
                     except (IndexError, ValueError):
                         writer.write(b"RPRT -1\n")
-                elif command == 's':
-                    split, tx_vfo = await self.cat.get_split_vfo()
+                elif command == 's' or command.startswith('s '):
+                    parts = command.split()
+                    vfo = self.cat._RIGCTL_TO_VFO.get(parts[1]) if self.vfo_opt and len(parts) > 1 else None
+                    split, tx_vfo = await self.cat.get_split_vfo(vfo=vfo)
                     writer.write(f"{split}\n{tx_vfo}\n".encode())
                 elif command.startswith('S '):
                     try:
                         parts = command.split()
-                        split = int(parts[1])
-                        tx_vfo = parts[2]
+                        if self.vfo_opt:
+                            split = int(parts[2])
+                            tx_vfo = parts[3]
+                        else:
+                            split = int(parts[1])
+                            tx_vfo = parts[2]
                         ok = await self.cat.set_split_vfo(split, tx_vfo)
                         writer.write(b"RPRT 0\n" if ok else b"RPRT -4\n")
                     except (IndexError, ValueError):
                         writer.write(b"RPRT -1\n")
-                elif command == 't':
-                    ptt = await self.cat.get_ptt()
+                elif command == 't' or command.startswith('t '):
+                    parts = command.split()
+                    vfo = self.cat._RIGCTL_TO_VFO.get(parts[1]) if self.vfo_opt and len(parts) > 1 else None
+                    ptt = await self.cat.get_ptt(vfo=vfo)
                     writer.write(f"{ptt}\n".encode())
                 elif command.startswith('T '):
                     try:
-                        ptt = int(command.split()[1])
-                        await self.cat.set_ptt(ptt)
+                        parts = command.split()
+                        if self.vfo_opt:
+                            vfo = self.cat._RIGCTL_TO_VFO.get(parts[1])
+                            ptt = int(parts[2])
+                        else:
+                            vfo = None
+                            ptt = int(parts[1])
+                        await self.cat.set_ptt(ptt, vfo=vfo)
                         writer.write(b"RPRT 0\n")
-                    except ValueError:
+                    except (ValueError, IndexError):
                         writer.write(b"RPRT -1\n")
                 elif command == 'q':
                     print(f"Disconnect from {addr}")
@@ -761,20 +798,21 @@ class CATController:
         "0\n"
         )
 
-    async def set_vfo_memory(self, name, value):
+    async def set_vfo_memory(self, name, value, vfo=None):
         printd(f"rigctl SET {name} = {value}")
         if name == "vfo_active":
             self.radio.set_active_vfo(vfo=value)
             return
-        self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']][name] = value
+        target = vfo if vfo is not None else self.radio.vfo_memory['vfo_active']
+        self.radio.vfo_memory[target][name] = value
 
-    async def get_vfo_memory(self, name):
+    async def get_vfo_memory(self, name, vfo=None):
         printd(f"rigctl GET {name}")
-        vfo_active = self.radio.vfo_memory['vfo_active']
         if name == "vfo_active":
-            return vfo_active
-        printd(f"rigctl GET {name} - VFO: {vfo_active}")
-        return self.radio.vfo_memory[vfo_active][name]
+            return self.radio.vfo_memory['vfo_active']
+        target = vfo if vfo is not None else self.radio.vfo_memory['vfo_active']
+        printd(f"rigctl GET {name} - VFO: {target}")
+        return self.radio.vfo_memory[target][name]
 
     async def get_memory_name(self, mem_num: int) -> str:
         memory = await self.get_vfo_memory("name")
@@ -782,14 +820,20 @@ class CATController:
             return ""
         return memory
 
-    async def get_frequency(self) -> int:
-        return await self.get_vfo_memory("frequency")
+    async def get_frequency(self, vfo=None) -> int:
+        return await self.get_vfo_memory("frequency", vfo=vfo)
 
-    async def set_frequency(self, digits: str):
+    async def _ensure_active_vfo(self, target):
+        if self.radio.vfo_memory['vfo_active'] != target:
+            await self._press_release(RADIO_TX_CMD.get(f"{target}_DIAL_PRESS"))
+            await asyncio.sleep(0.2)
+
+    async def set_frequency(self, digits: str, vfo=None):
         printd(f"***Set FREQ: {digits}***")
-        vfo_active = self.radio.vfo_memory['vfo_active']
-        if self.radio.vfo_memory[vfo_active]['operating_mode'] != int(RADIO_VFO_TYPE.VFO):
-            self.radio.exe_cmd(cmd=RADIO_TX_CMD.get(f"{vfo_active}_VM"))
+        target = vfo if vfo is not None else self.radio.vfo_memory['vfo_active']
+        await self._ensure_active_vfo(target)
+        if self.radio.vfo_memory[target]['operating_mode'] != int(RADIO_VFO_TYPE.VFO):
+            self.radio.exe_cmd(cmd=RADIO_TX_CMD.get(f"{target}_VM"))
             await asyncio.sleep(0.3)
         for n in digits:
             cmd_payload = self.radio.get_cmd_pkt(cmd=RADIO_TX_CMD.get(f"MIC_{n}"))
@@ -799,17 +843,18 @@ class CATController:
             self.radio.protocol.send_packet(cmd_pkt + cmd_pkt2)
             await asyncio.sleep(0.4)
 
-    async def get_mode(self) -> tuple:
+    async def get_mode(self, vfo=None) -> tuple:
         return "FM", 25000
 
-    async def get_ptt(self) -> int:
-        return await self.get_vfo_memory("ptt")
+    async def get_ptt(self, vfo=None) -> int:
+        return await self.get_vfo_memory("ptt", vfo=vfo)
 
-    async def set_ptt(self, state: int):
+    async def set_ptt(self, state: int, vfo=None):
         desired = state != 0
         if desired != self.radio.mic_ptt:
             self.radio.mic_ptt = desired
-            self.radio.vfo_memory[self.radio.vfo_memory['vfo_active']]['ptt'] = 1 if desired else 0
+            target = vfo if vfo is not None else self.radio.vfo_memory['vfo_active']
+            self.radio.vfo_memory[target]['ptt'] = 1 if desired else 0
             self.radio.exe_cmd(cmd=RADIO_TX_CMD.MIC_PTT)
 
     _VFO_TO_RIGCTL = {RADIO_VFO.LEFT: "VFOA", RADIO_VFO.RIGHT: "VFOB"}
@@ -834,29 +879,32 @@ class CATController:
             raise ValueError("Invalid VFO")
         target = self._RIGCTL_TO_VFO.get(vfo, RADIO_VFO.LEFT)
         printd(f"rigctl SET vfo_active = {target}")
-        if self.radio.vfo_memory['vfo_active'] == target:
-            return
-        await self._press_release(RADIO_TX_CMD.get(f"{target}_DIAL_PRESS"))
+        await self._ensure_active_vfo(target)
 
-    async def vfo_op(self, op: str) -> bool:
+    async def vfo_op(self, op: str, vfo=None) -> bool:
         if op == "TOGGLE":
             vfo_active = self.radio.vfo_memory['vfo_active']
             new_vfo = RADIO_VFO.RIGHT if vfo_active == RADIO_VFO.LEFT else RADIO_VFO.LEFT
             await self._press_release(RADIO_TX_CMD.get(f"{new_vfo}_DIAL_PRESS"))
             return True
         elif op == "UP":
+            if vfo is not None:
+                await self._ensure_active_vfo(vfo)
             await self._press_release(RADIO_TX_CMD.MIC_UP)
             return True
         elif op == "DOWN":
+            if vfo is not None:
+                await self._ensure_active_vfo(vfo)
             await self._press_release(RADIO_TX_CMD.MIC_DOWN)
             return True
         return False
 
-    async def scan(self, fct: str, ch: int) -> bool:
+    async def scan(self, fct: str, ch: int, vfo=None) -> bool:
         return False
 
-    async def get_split_vfo(self) -> tuple:
-        return "0", await self.get_vfo()
+    async def get_split_vfo(self, vfo=None) -> tuple:
+        target = vfo if vfo is not None else self.radio.vfo_memory['vfo_active']
+        return "0", self._VFO_TO_RIGCTL.get(target, "VFOA")
 
-    async def set_split_vfo(self, split: int, vfo: str) -> bool:
+    async def set_split_vfo(self, split: int, tx_vfo: str, vfo=None) -> bool:
         return split == 0

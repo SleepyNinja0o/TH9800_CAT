@@ -2,7 +2,7 @@ import asyncio
 from machine import Pin
 from TH9800_Enums import RADIO_VFO, RADIO_TX_CMD
 import esp32_config
-
+import gc
 
 class GpioSignal:
     def __init__(self, pin_num=None, invert=False, initial=False):
@@ -42,6 +42,8 @@ class RelayServer:
     async def start(self):
         self.server = await asyncio.start_server(self._handle_client, self.host, self.port)
         print("Relay server running on", self.host, self.port)
+        gc.collect()
+        print(f"Free memory: {gc.mem_free()}")
 
     def forward_packet(self, packet: bytes):
         """Call from the RX pump so a connected, logged-in client sees
@@ -107,6 +109,8 @@ class RelayServer:
             return "Not Found"
 
     async def _handle_client(self, reader, writer):
+        gc.collect()
+        print(f"Free memory: {gc.mem_free()}")
         addr = writer.get_extra_info("peername")
         print("Relay connection from", addr)
         self.client_writer = writer
