@@ -1,21 +1,8 @@
-"""
-Wires esp32_uart.py's UART transport to radio_protocol.py's portable
-SerialRadio/SerialPacket -- the ESP32-side equivalent of TH9800_CAT.py's
-main() + read_loop().
-"""
-
 import asyncio
 import radio_protocol as rp
+import esp32_config
 from esp32_uart import UartTransport
 from esp32_relay import RelayServer
-
-
-def _relay_password():
-    try:
-        import wifi_config
-        return getattr(wifi_config, "RELAY_PASSWORD", "")
-    except ImportError:
-        return ""
 
 
 async def rx_pump(transport, packet_parser, relay=None):
@@ -30,21 +17,18 @@ async def rx_pump(transport, packet_parser, relay=None):
 
 
 def setup(uart_id=2, tx=26, rx=27, baudrate=19200, rigctl_host="0.0.0.0", rigctl_port=4532,
-          relay_host="0.0.0.0", relay_port=24, rts_pin=None, dtr_pin=None):
-    """Wire up the transport + radio + packet parser, start the
-    background UART tasks, and start the rigctl + relay TCP servers.
-    Returns (transport, radio, packet_parser, rigctl, relay)."""
+          relay_host="0.0.0.0", relay_port=9800, rts_pin=5, dtr_pin=None):
     transport = UartTransport(uart_id=uart_id, tx=tx, rx=rx, baudrate=baudrate)
     radio = rp.SerialRadio(protocol=transport)
 
-    transport.radio = radio  # SerialPacket.__init__ expects protocol.radio
+    transport.radio = radio
     packet_parser = rp.SerialPacket(protocol=transport)
 
     cat = rp.CATController(radio=radio)
     radio.cat = cat
     rigctl = rp.RigctlServer(cat, host=rigctl_host, port=rigctl_port)
 
-    relay = RelayServer(transport, radio, password=_relay_password(),
+    relay = RelayServer(transport, radio, password=esp32_config.CONFIG_DEFAULTS["relay_password"],
                          host=relay_host, port=relay_port, rts_pin=rts_pin, dtr_pin=dtr_pin)
 
     transport.start()
