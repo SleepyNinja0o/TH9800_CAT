@@ -96,8 +96,8 @@ write_loop_future = None
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.txt")
 CONFIG_DEFAULTS = {
-    "baud_rate": "19200",
-    "device": "FT232R USB UART",
+    "baud_rate": "",
+    "device": "",
     "host": "",
     "port": "",
     "password": "",
