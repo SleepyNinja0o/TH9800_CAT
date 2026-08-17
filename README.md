@@ -1,4 +1,5 @@
 # TYT TH-9800 CAT Control via Remote Head Serial Protocol 
+<b>*** Check out the new [ESP32_Rewrite](https://github.com/SleepyNinja0o/TH9800_CAT/tree/ESP32_Rewrite) branch for a MicroPython port of this software (Runs on an ESP32!) ***</b>
 ## Research
 There was no documentation on the remote radio head protocol so I had to reverse engineer it. Here is what I used:
 - Hardware:
