@@ -9,6 +9,7 @@ transport, radio, packet_parser, rigctl, relay = esp32_link.setup(
     tx=esp32_config.CONFIG_DEFAULTS["tx_pin"],
     rx=esp32_config.CONFIG_DEFAULTS["rx_pin"],
     rts_pin=esp32_config.CONFIG_DEFAULTS["rts_pin"],
+    dtr_pin=esp32_config.CONFIG_DEFAULTS["dtr_pin"],
     rigctl_port=esp32_config.CONFIG_DEFAULTS["rigctl_port"],
     relay_port=esp32_config.CONFIG_DEFAULTS["relay_port"],
 )

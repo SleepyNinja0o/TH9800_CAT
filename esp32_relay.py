@@ -39,6 +39,11 @@ class RelayServer:
     def _apply_rts_default(self):
         self.rts.set(esp32_config.CONFIG_DEFAULTS["rts_state_default"] == "1")
 
+    async def _pulse_dtr(self):
+        self.dtr.set(True)
+        await asyncio.sleep(esp32_config.CONFIG_DEFAULTS["dtr_hold_ms"] / 1000)
+        self.dtr.set(False)
+
     async def start(self):
         self.server = await asyncio.start_server(self._handle_client, self.host, self.port)
         print("Relay server running on", self.host, self.port)
@@ -99,7 +104,7 @@ class RelayServer:
             return str(self.rts.state)
         elif cmd == "dtr":
             if data == "" or data is None:
-                self.dtr.toggle()
+                await self._pulse_dtr()
             else:
                 self.dtr.set(data.strip().lower() in ("true", "1", "on"))
             return str(self.dtr.state)
